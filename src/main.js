@@ -1,0 +1,11 @@
+import './app.css';
+import App from './App.svelte';
+import { initPersistence } from './lib/stores.js';
+
+initPersistence();
+
+const app = new App({
+  target: document.getElementById('app'),
+});
+
+export default app;

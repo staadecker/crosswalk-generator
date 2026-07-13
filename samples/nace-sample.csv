@@ -1,0 +1,26 @@
+level,code,description
+1,A,"Agriculture, forestry and fishing"
+2,01,"Crop and animal production, hunting and related service activities"
+3,01.1,Growing of non-perennial crops
+4,01.11,"Growing of cereals (except rice), leguminous crops and oil seeds"
+4,01.13,"Growing of vegetables and melons, roots and tubers"
+3,01.4,Animal production
+4,01.41,Raising of dairy cattle
+4,01.42,Raising of other cattle and buffaloes
+1,C,Manufacturing
+2,10,Manufacture of food products
+3,10.6,Manufacture of grain mill products, starches and starch products
+4,10.61,Manufacture of grain mill products
+3,10.9,Manufacture of prepared animal feeds
+4,10.91,Manufacture of prepared feeds for farm animals
+2,11,Manufacture of beverages
+3,11.0,Manufacture of beverages
+4,11.05,Manufacture of beer
+4,11.07,Manufacture of soft drinks; production of mineral waters
+1,M,"Professional, scientific and technical activities"
+2,69,Legal and accounting activities
+3,69.2,"Accounting, bookkeeping and auditing activities; tax consultancy"
+4,69.20,"Accounting, bookkeeping and auditing activities; tax consultancy"
+2,62,Computer programming, consultancy and related activities
+3,62.0,Computer programming, consultancy and related activities
+4,62.01,Computer programming activities

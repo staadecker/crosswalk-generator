@@ -1,0 +1,24 @@
+{
+  "name": "crosswalk-generator",
+  "version": "1.0.0",
+  "description": "Interactive, client-side crosswalk builder between two hierarchical classification systems (e.g. NAICS ↔ NACE).",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "npm run test:logic && npm run test:e2e",
+    "test:logic": "node tests/logic.test.mjs",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "papaparse": "^5.4.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.48.0",
+    "@sveltejs/vite-plugin-svelte": "^3.1.2",
+    "svelte": "^4.2.19",
+    "vite": "^5.4.10"
+  }
+}

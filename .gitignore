@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.DS_Store
+*.local
+.vite/
+
+# Playwright
+test-results/
+playwright-report/
+blob-report/
+.playwright/

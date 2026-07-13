@@ -1,0 +1,27 @@
+level,code,description
+1,11,"Agriculture, Forestry, Fishing and Hunting"
+2,111,Crop Production
+3,1111,Oilseed and Grain Farming
+4,11111,Soybean Farming
+4,11112,Oilseed (except Soybean) Farming
+3,1112,Vegetable and Melon Farming
+4,11121,Vegetable and Melon Farming
+2,112,Animal Production and Aquaculture
+3,1121,Cattle Ranching and Farming
+4,11211,Beef Cattle Ranching and Farming
+1,31,Manufacturing
+2,311,Food Manufacturing
+3,3111,Animal Food Manufacturing
+4,31111,Animal Food Manufacturing
+3,3112,Grain and Oilseed Milling
+4,31121,Flour Milling and Malt Manufacturing
+2,312,"Beverage and Tobacco Product Manufacturing"
+3,3121,Beverage Manufacturing
+4,31211,Soft Drink and Ice Manufacturing
+4,31212,Breweries
+1,54,"Professional, Scientific, and Technical Services"
+2,541,"Professional, Scientific, and Technical Services"
+3,5415,Computer Systems Design and Related Services
+4,54151,Computer Systems Design and Related Services
+3,5412,"Accounting, Tax Preparation, Bookkeeping, and Payroll Services"
+4,54121,"Accounting, Tax Preparation, Bookkeeping, and Payroll Services"
