@@ -9,6 +9,8 @@
   --accent-contrast: #ffffff;
   --accent-soft: #e7efff;
   --danger: #d64545;
+  --success: #1f9d55;
+  --success-contrast: #ffffff;
   --warning-bg: #fff6e5;
   --warning-border: #f2cf7e;
   --warning-text: #7a5a12;
@@ -30,6 +32,8 @@
     --accent-contrast: #0e1220;
     --accent-soft: #23304d;
     --danger: #f07272;
+    --success: #3fbf72;
+    --success-contrast: #0e1220;
     --warning-bg: #33280f;
     --warning-border: #6b551f;
     --warning-text: #f0d79a;

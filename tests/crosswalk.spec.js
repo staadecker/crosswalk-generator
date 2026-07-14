@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
+import Papa from 'papaparse';
 
 const A = 'samples/naics-sample.csv';
 const B = 'samples/nace-sample.csv';
@@ -55,10 +56,16 @@ test('build hierarchies, map codes as groups, persist, and export a crosswalk', 
   await expect(csvInput).toHaveCount(2);
 
   await csvInput.first().setInputFiles(A);
+  // naics-sample.csv already has an explicit row for every ancestor level, so
+  // treat it as "parent codes already included" rather than auto-generating
+  // (which would otherwise wrap every real ancestor in a "<code> (group)" node).
+  await page.getByLabel('Parent codes already included').check();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
   await expect(page.getByText('26 codes')).toBeVisible(); // NAICS
 
   await csvInput.first().setInputFiles(B);
+  // nace-sample.csv is likewise already fully populated with every ancestor level.
+  await page.getByLabel('Parent codes already included').check();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
   await expect(page.getByText('25 codes')).toBeVisible(); // NACE
 
@@ -96,22 +103,19 @@ test('build hierarchies, map codes as groups, persist, and export a crosswalk', 
   await expect(page.locator('.progress-label').nth(0)).toHaveText('1 / 10 mapped');
   await expect(page.locator('.progress-label').nth(1)).toHaveText('2 / 10 mapped');
 
-  // --- "Select unmapped" selects only not-yet-mapped leaves under a parent. ---
-  await page.locator('.node', { hasText: '1111' }).first().hover();
-  await page.locator('.node', { hasText: '1111' }).first().locator('.select-unmapped').click();
+  // --- Clicking a parent (incomplete) node selects its not-yet-mapped leaves,
+  // instead of toggling the parent's own selection. ---
+  await page.locator('.node', { hasText: '1111' }).first().click();
   // 1111's leaves are 11111 (already mapped, skipped) and 11112 (unmapped, selected).
   await expect(page.locator('.node.selected')).toHaveCount(1);
   await expect(page.locator('.node.selected', { hasText: '11112' })).toBeVisible();
   await page.locator('.panel[data-accent="A"] .selcount .linky').click();
   await expect(page.locator('.node.selected')).toHaveCount(0);
 
-  // --- Rename the group: the name is static text until the edit button opens it
-  // for editing (kept out of always-editable inputs so dense rows stay compact). ---
-  await row.getByRole('button', { name: /^Rename/ }).click();
-  const nameInput = row.locator('.name-input');
-  await nameInput.fill('Soybean crosswalk');
-  await nameInput.blur();
-  await expect(row.locator('.name-label')).toHaveText('Soybean crosswalk');
+  // --- Group names are not editable or displayed in the Mappings pane (they're
+  // just the concatenation of the codes already shown as bubbles). ---
+  await expect(row.getByRole('button', { name: /^Rename/ })).toHaveCount(0);
+  await expect(row.locator('.name-label')).toHaveCount(0);
 
   // --- Remove a single code (bubble) from the group without deleting the row. ---
   await row.locator('.bubble', { hasText: '01.41' }).locator('.bubble-x').click();
@@ -152,7 +156,7 @@ test('build hierarchies, map codes as groups, persist, and export a crosswalk', 
   // --- Persistence across reload. ---
   await page.reload();
   await expect(page.locator('.list header h3 .count')).toHaveText('2');
-  await expect(page.locator('.row').first().locator('.name-label')).toHaveText('Soybean crosswalk');
+  await expect(page.locator('.row').first().locator('.pair > .side').first().locator('.bubble')).toHaveCount(2);
 
   // --- Export: one .zip download containing all three crosswalk files. ---
   const [download] = await Promise.all([
@@ -165,18 +169,27 @@ test('build hierarchies, map codes as groups, persist, and export a crosswalk', 
 
   const csvSingle = entries['crosswalk.csv'];
   expect(csvSingle.split(/\r?\n/)[0]).toBe(
-    'a_code,a_title,b_code,b_title,group_name,note',
+    'a_code,a_title,b_code,b_title,group_name,relationship,note',
   );
   expect(csvSingle).toMatch(/11111,Soybean Farming,01\.11/);
-  // No-match row: blank B side.
-  expect(csvSingle).toMatch(/54151,[^\n]*,,,/);
+  const parsedCsvSingle = Papa.parse(csvSingle, { header: true }).data;
+  const soyExportRow = parsedCsvSingle.find((r) => r.a_code === '11111' && r.b_code === '01.11');
+  expect(soyExportRow.relationship).toBe('equal'); // "equal" by default, not toggled to approximate
+  // No-match row: blank B side, blank relationship, and (per the "distinct row
+  // per no-match code" rule) its own code as the group name, not a shared one.
+  const noMatchExportRow = parsedCsvSingle.find((r) => r.a_code === '54151');
+  expect(noMatchExportRow.b_code).toBe('');
+  expect(noMatchExportRow.group_name).toBe('54151');
+  expect(noMatchExportRow.relationship).toBe('');
 
   const aToNameCsv = entries['a-to-name.csv'];
   const nameToBCsv = entries['name-to-b.csv'];
-  expect(aToNameCsv.split(/\r?\n/)[0]).toBe('a_code,a_title,group_name');
-  expect(nameToBCsv.split(/\r?\n/)[0]).toBe('group_name,b_code,b_title');
-  expect(aToNameCsv).toMatch(/11111,Soybean Farming,Soybean crosswalk/);
-  expect(nameToBCsv).toMatch(/Soybean crosswalk,01\.11/);
+  expect(aToNameCsv.split(/\r?\n/)[0]).toBe('a_code,a_title,group_name,relationship');
+  expect(nameToBCsv.split(/\r?\n/)[0]).toBe('group_name,b_code,b_title,relationship');
+  // The group's name is auto-derived from its A-side leaf codes at creation
+  // time (just "11111" — the target side never factors in) and isn't editable.
+  expect(aToNameCsv).toMatch(/11111,Soybean Farming,11111,equal/);
+  expect(nameToBCsv).toMatch(/11111,01\.11.*,equal/);
 
   expect(errors, `browser errors:\n${errors.join('\n')}`).toEqual([]);
 });
@@ -230,8 +243,14 @@ test('"select unmapped" compacts to the topmost code and auto-expands so the sel
 
   const csvInput = page.locator('input[type=file][accept*="csv"]');
   await csvInput.first().setInputFiles(A);
+  // naics-sample.csv already has an explicit row for every ancestor level, so
+  // treat it as "parent codes already included" rather than auto-generating
+  // (which would otherwise wrap every real ancestor in a "<code> (group)" node).
+  await page.getByLabel('Parent codes already included').check();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
   await csvInput.first().setInputFiles(B);
+  // nace-sample.csv is likewise already fully populated with every ancestor level.
+  await page.getByLabel('Parent codes already included').check();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
 
   const panelA = page.locator('.panel[data-accent="A"]');
@@ -256,10 +275,12 @@ test('"select unmapped" compacts to the topmost code and auto-expands so the sel
   await panelA.locator('.controls button', { hasText: 'Collapse' }).click();
   await expect(node1112).toHaveCount(0);
 
-  // Click "select unmapped" on the (collapsed, not-yet-expanded) root sector 11.
+  // Click the (collapsed, not-yet-expanded) root sector 11 itself — a node with
+  // children is never individually selected; clicking it selects its unmapped
+  // leaves instead (there's no separate "select unmapped" button anymore).
   const root11 = panelA.locator('.node', { hasText: /\b11\b/ });
-  await root11.hover();
-  await root11.locator('.select-unmapped').click();
+  await expect(root11.locator('.select-unmapped')).toHaveCount(0);
+  await root11.click();
 
   // The previously-hidden branch must now be visible (auto-expanded)...
   await expect(node1112).toBeVisible();
@@ -270,6 +291,15 @@ test('"select unmapped" compacts to the topmost code and auto-expands so the sel
   await expect(node11112).toHaveClass(/selected/);
   await expect(node1112).toHaveClass(/selected/);
   await expect(node112).toHaveClass(/selected/);
+
+  // Regression: a parent-level code that ended up selected (via the
+  // select-unmapped compaction above) must deselect on a second click, just
+  // like any other selected code — it must not re-run "select unmapped"
+  // instead (which would leave it stuck selected with no way to click it off,
+  // since everything under it is already selected/unmapped either way).
+  await node112.click();
+  await expect(node112).not.toHaveClass(/selected/);
+  await expect(panelA.locator('.node.selected')).toHaveCount(2);
 });
 
 test('auto-detect level builds a hierarchy without picking a level column', async ({ page }) => {
@@ -283,12 +313,49 @@ test('auto-detect level builds a hierarchy without picking a level column', asyn
   const csvInput = page.locator('input[type=file][accept*="csv"]');
   await csvInput.first().setInputFiles(A);
   await page.getByLabel('Auto-detect level from code').check();
+  // naics-sample.csv already has an explicit row for every ancestor level, so
+  // it's a "parent codes already included" dataset — auto-generating parent
+  // codes (the default) would treat every real ancestor code as colliding
+  // with itself and wrap it in a spurious "<code> (group)" node.
+  await page.getByLabel('Parent codes already included').check();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
   await expect(page.getByText('26 codes')).toBeVisible(); // NAICS: still all 26 rows kept
 
   for (const b of await page.locator('.controls button', { hasText: 'Expand' }).all()) await b.click();
   // Auto-detected (length-based) levels reproduce the same nesting as the explicit level column.
   await expect(page.locator('.node', { hasText: '11111' }).first()).toBeVisible();
+
+  expect(errors, `browser errors:\n${errors.join('\n')}`).toEqual([]);
+});
+
+test('auto-generate parent codes disambiguates a code that collides with an implied ancestor', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
+
+  await page.goto('./');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+
+  const csvInput = page.locator('input[type=file][accept*="csv"]');
+  await csvInput.first().setInputFiles({
+    name: 'colliding.csv',
+    mimeType: 'text/csv',
+    buffer: Buffer.from('code,title\n20,Twenty\n20.w,Twenty W\n'),
+  });
+  await page.getByLabel('Auto-detect level from code').check();
+  // Leave "Auto-generate parent codes" selected (the default): "20" is both a
+  // real code and the natural ancestor of "20.w", so it's "already taken" and
+  // should be replaced by a synthesized, blank-title "20 (group)" node with
+  // both real codes nested under it as siblings.
+  await expect(page.getByLabel('Auto-generate parent codes')).toBeChecked();
+  await page.getByRole('button', { name: 'Build hierarchy' }).click();
+
+  for (const b of await page.locator('.controls button', { hasText: 'Expand' }).all()) await b.click();
+  // The synthesized "20 (group)" node is its own root, with the real "20" and
+  // "20.w" nested under it as siblings (a blank title, so only its code shows).
+  await expect(page.locator('.node .code', { hasText: '20 (group)' })).toBeVisible();
+  await expect(page.locator('.node .code').filter({ hasText: /^20$/ })).toBeVisible();
+  await expect(page.locator('.node .code', { hasText: '20.w' })).toBeVisible();
 
   expect(errors, `browser errors:\n${errors.join('\n')}`).toEqual([]);
 });
@@ -303,8 +370,14 @@ test('unique-mapping-once toggle blocks selecting an already-mapped code outrigh
 
   const csvInput = page.locator('input[type=file][accept*="csv"]');
   await csvInput.first().setInputFiles(A);
+  // naics-sample.csv already has an explicit row for every ancestor level, so
+  // treat it as "parent codes already included" rather than auto-generating
+  // (which would otherwise wrap every real ancestor in a "<code> (group)" node).
+  await page.getByLabel('Parent codes already included').check();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
   await csvInput.first().setInputFiles(B);
+  // nace-sample.csv is likewise already fully populated with every ancestor level.
+  await page.getByLabel('Parent codes already included').check();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
   for (const b of await page.locator('.controls button', { hasText: 'Expand' }).all()) await b.click();
 
@@ -364,8 +437,14 @@ test('renaming a dataset is reflected in the exported crosswalk filename', async
 
   const csvInput = page.locator('input[type=file][accept*="csv"]');
   await csvInput.first().setInputFiles(A);
+  // naics-sample.csv already has an explicit row for every ancestor level, so
+  // treat it as "parent codes already included" rather than auto-generating
+  // (which would otherwise wrap every real ancestor in a "<code> (group)" node).
+  await page.getByLabel('Parent codes already included').check();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
   await csvInput.first().setInputFiles(B);
+  // nace-sample.csv is likewise already fully populated with every ancestor level.
+  await page.getByLabel('Parent codes already included').check();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
 
   // Rename both datasets: click each panel's edit button to reveal the name
@@ -394,15 +473,21 @@ test('renaming a dataset is reflected in the exported crosswalk filename', async
   expect(download.suggestedFilename()).toMatch(/^my-naics-set-to-my-nace-set-crosswalk-.*\.zip$/);
 });
 
-test('mapping name and note stay compact static text until explicitly opened for editing', async ({ page }) => {
+test('mapping note stays compact static text until explicitly opened for editing', async ({ page }) => {
   await page.goto('./');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
 
   const csvInput = page.locator('input[type=file][accept*="csv"]');
   await csvInput.first().setInputFiles(A);
+  // naics-sample.csv already has an explicit row for every ancestor level, so
+  // treat it as "parent codes already included" rather than auto-generating
+  // (which would otherwise wrap every real ancestor in a "<code> (group)" node).
+  await page.getByLabel('Parent codes already included').check();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
   await csvInput.first().setInputFiles(B);
+  // nace-sample.csv is likewise already fully populated with every ancestor level.
+  await page.getByLabel('Parent codes already included').check();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
   for (const b of await page.locator('.controls button', { hasText: 'Expand' }).all()) await b.click();
 
@@ -412,9 +497,9 @@ test('mapping name and note stay compact static text until explicitly opened for
 
   const row = page.locator('.row').first();
 
-  // Name: static label + edit button by default, no bare input in the row.
-  await expect(row.locator('.name-label')).toBeVisible();
-  await expect(row.locator('.name-input')).toHaveCount(0);
+  // Names are not editable or displayed at all in the Mappings pane.
+  await expect(row.getByRole('button', { name: /^Rename/ })).toHaveCount(0);
+  await expect(row.locator('.name-label')).toHaveCount(0);
 
   // Note: a small toggle button, not a field taking up its own row, and no
   // "has-note" styling until a note actually exists.
@@ -450,8 +535,14 @@ test('hovering a mapped code bubble shows a fast custom tooltip with its title',
 
   const csvInput = page.locator('input[type=file][accept*="csv"]');
   await csvInput.first().setInputFiles(A);
+  // naics-sample.csv already has an explicit row for every ancestor level, so
+  // treat it as "parent codes already included" rather than auto-generating
+  // (which would otherwise wrap every real ancestor in a "<code> (group)" node).
+  await page.getByLabel('Parent codes already included').check();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
   await csvInput.first().setInputFiles(B);
+  // nace-sample.csv is likewise already fully populated with every ancestor level.
+  await page.getByLabel('Parent codes already included').check();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
   for (const b of await page.locator('.controls button', { hasText: 'Expand' }).all()) await b.click();
 
@@ -482,8 +573,14 @@ test('replacing a file deletes mappings that reference it, after confirmation', 
 
   const csvInput = page.locator('input[type=file][accept*="csv"]');
   await csvInput.first().setInputFiles(A);
+  // naics-sample.csv already has an explicit row for every ancestor level, so
+  // treat it as "parent codes already included" rather than auto-generating
+  // (which would otherwise wrap every real ancestor in a "<code> (group)" node).
+  await page.getByLabel('Parent codes already included').check();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
   await csvInput.first().setInputFiles(B);
+  // nace-sample.csv is likewise already fully populated with every ancestor level.
+  await page.getByLabel('Parent codes already included').check();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
   for (const b of await page.locator('.controls button', { hasText: 'Expand' }).all()) await b.click();
 
@@ -518,8 +615,14 @@ test('dragging a bubble in the Mappings pane onto another group moves it there',
 
   const csvInput = page.locator('input[type=file][accept*="csv"]');
   await csvInput.first().setInputFiles(A);
+  // naics-sample.csv already has an explicit row for every ancestor level, so
+  // treat it as "parent codes already included" rather than auto-generating
+  // (which would otherwise wrap every real ancestor in a "<code> (group)" node).
+  await page.getByLabel('Parent codes already included').check();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
   await csvInput.first().setInputFiles(B);
+  // nace-sample.csv is likewise already fully populated with every ancestor level.
+  await page.getByLabel('Parent codes already included').check();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
   for (const b of await page.locator('.controls button', { hasText: 'Expand' }).all()) await b.click();
 
@@ -558,4 +661,210 @@ test('dragging a bubble in the Mappings pane onto another group moves it there',
     secondRow.locator('.pair > .side').nth(1),
   );
   await expect(secondRow.locator('.pair > .side').nth(1).locator('.bubble')).toHaveCount(2);
+});
+
+test('per-node progress fraction badges, mapped-code tooltip/cursor, auto-collapse on completion, and collapsible search results', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
+
+  await page.goto('./');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+
+  const csvInput = page.locator('input[type=file][accept*="csv"]');
+  await csvInput.first().setInputFiles(A);
+  // naics-sample.csv already has an explicit row for every ancestor level, so
+  // treat it as "parent codes already included" rather than auto-generating
+  // (which would otherwise wrap every real ancestor in a "<code> (group)" node).
+  await page.getByLabel('Parent codes already included').check();
+  await page.getByRole('button', { name: 'Build hierarchy' }).click();
+  await csvInput.first().setInputFiles(B);
+  // nace-sample.csv is likewise already fully populated with every ancestor level.
+  await page.getByLabel('Parent codes already included').check();
+  await page.getByRole('button', { name: 'Build hierarchy' }).click();
+  const panelA = page.locator('.panel[data-accent="A"]');
+  for (const b of await panelA.locator('.controls button', { hasText: 'Expand' }).all()) await b.click();
+
+  // 1111 (Oilseed and Grain Farming) has exactly two leaf children: 11111, 11112.
+  const node1111 = panelA.locator('.node', { hasText: /\b1111\b/ });
+  const node11111 = panelA.locator('.node', { hasText: /\b11111\b/ });
+  const node11112 = panelA.locator('.node', { hasText: /\b11112\b/ });
+
+  // --- Nothing mapped yet: gray "0/2" fraction, not a raw count bubble. ---
+  await expect(node1111.locator('.badge')).toHaveText('0/2');
+  await expect(node1111.locator('.badge')).toHaveClass(/zero/);
+
+  // --- Map just 11111; 1111 is now a blue (default) partial fraction, and the
+  // mapped leaf itself shows a green checkmark instead of a numeric badge. ---
+  await node11111.click();
+  await page.locator('.node', { hasText: '01.11' }).first().click();
+  await page.getByRole('button', { name: 'Link' }).click();
+  await expect(node1111.locator('.badge')).toHaveText('1/2');
+  await expect(node1111.locator('.badge')).not.toHaveClass(/zero|full/);
+  await expect(node11111.locator('.badge')).toHaveText('✓');
+  await expect(node11111.locator('.badge')).toHaveClass(/full/);
+
+  // --- A mapped code stays clickable (no "block" cursor) and, once locked by
+  // the once-only toggle, still shows a plain description tooltip rather than
+  // an explanatory "why disabled" message — the checkmark already communicates
+  // that. (This sample has no separate description column, so the tooltip is
+  // simply absent either way; what matters is it's never the old message.) ---
+  await page.getByLabel('Only allow each code to be mapped once').check();
+  await expect(node11111).toHaveClass(/locked/);
+  const cursor = await node11111.evaluate((el) => getComputedStyle(el).cursor);
+  expect(cursor).not.toBe('not-allowed');
+  const title = (await node11111.getAttribute('title')) ?? '';
+  expect(title).not.toContain('Already part of another mapping');
+  await page.getByLabel('Only allow each code to be mapped once').uncheck();
+
+  // --- Completing 1111's last leaf turns its badge fully green *and*
+  // auto-collapses the section (its children disappear from view) — but only
+  // on that transition, so manually reopening it afterwards sticks. ---
+  await node11112.click();
+  await page.locator('.node', { hasText: '01.13' }).first().click();
+  await page.getByRole('button', { name: 'Link' }).click();
+  await expect(node1111.locator('.badge')).toHaveText('2/2');
+  await expect(node1111.locator('.badge')).toHaveClass(/full/);
+  await expect(node11112).toHaveCount(0); // auto-collapsed, child rows gone
+
+  await node1111.locator('.twist').click();
+  await expect(node11112).toBeVisible(); // reopening it works and isn't fought
+
+  // --- Searching reveals matches by auto-expanding their ancestors, but a
+  // section shown only because it's part of the results can still be
+  // collapsed (it used to be impossible to collapse anything while a search
+  // filter was active). ---
+  await page.locator('input[type=search]').first().fill('Cattle');
+  const node112 = panelA.locator('.node', { hasText: /\b112\b/ });
+  const node1121 = panelA.locator('.node', { hasText: /\b1121\b/ });
+  const node11211 = panelA.locator('.node', { hasText: /\b11211\b/ });
+  await expect(node112).toBeVisible();
+  await expect(node1121).toBeVisible();
+  await expect(node11211).toBeVisible();
+
+  await node1121.locator('.twist').click();
+  await expect(node11211).toHaveCount(0); // collapsed even though it's a search match
+  await expect(node1121).toBeVisible(); // the collapsed node itself stays visible
+
+  expect(errors, `browser errors:\n${errors.join('\n')}`).toEqual([]);
+});
+
+test('long titles wrap instead of being cut off, and the progress bar turns green at 100%', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
+
+  await page.goto('./');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+
+  const csvInput = page.locator('input[type=file][accept*="csv"]');
+  await csvInput.first().setInputFiles(A);
+  // naics-sample.csv already has an explicit row for every ancestor level, so
+  // treat it as "parent codes already included" rather than auto-generating
+  // (which would otherwise wrap every real ancestor in a "<code> (group)" node).
+  await page.getByLabel('Parent codes already included').check();
+  await page.getByRole('button', { name: 'Build hierarchy' }).click();
+  await csvInput.first().setInputFiles(B);
+  // nace-sample.csv is likewise already fully populated with every ancestor level.
+  await page.getByLabel('Parent codes already included').check();
+  await page.getByRole('button', { name: 'Build hierarchy' }).click();
+  const panelA = page.locator('.panel[data-accent="A"]');
+  for (const b of await panelA.locator('.controls button', { hasText: 'Expand' }).all()) await b.click();
+
+  // --- A long title wraps onto further lines (taller row) instead of being
+  // ellipsized onto one line, unlike a short-title row. ---
+  const longRow = panelA.locator('.node', { hasText: 'Accounting, Tax Preparation, Bookkeeping, and Payroll Services' }).first();
+  const shortRow = panelA.locator('.node', { hasText: /\b112\b/ });
+  await expect(longRow.locator('.desc')).toHaveCSS('white-space', 'normal');
+  const longBox = await longRow.boundingBox();
+  const shortBox = await shortRow.boundingBox();
+  expect(longBox.height).toBeGreaterThan(shortBox.height * 1.5);
+
+  // --- Progress bar turns green once a panel reaches 100%. A separate tiny
+  // single-leaf-per-side upload keeps this cheap (no need to map all 10
+  // leaves of the shared sample). No mappings exist yet, so "Replace file…"
+  // swaps the file without a confirmation prompt.
+  const tinyA = 'level,code,description\n1,X1,Only code\n';
+  const tinyB = 'level,code,description\n1,Y1,Only code\n';
+  await page.locator('.panel[data-accent="A"]').getByRole('button', { name: /Replace file/ }).click();
+  await csvInput.first().setInputFiles({ name: 'tiny-a.csv', mimeType: 'text/csv', buffer: Buffer.from(tinyA) });
+  await page.getByRole('button', { name: 'Build hierarchy' }).click();
+  await page.locator('.panel[data-accent="B"]').getByRole('button', { name: /Replace file/ }).click();
+  await csvInput.first().setInputFiles({ name: 'tiny-b.csv', mimeType: 'text/csv', buffer: Buffer.from(tinyB) });
+  await page.getByRole('button', { name: 'Build hierarchy' }).click();
+
+  await expect(page.locator('.progress-fill').first()).not.toHaveClass(/complete/);
+  await page.locator('.node', { hasText: 'X1' }).first().click();
+  await page.locator('.node', { hasText: 'Y1' }).first().click();
+  await page.getByRole('button', { name: 'Link' }).click();
+  await expect(page.locator('.progress-label').nth(0)).toHaveText('1 / 1 mapped');
+  await expect(page.locator('.progress-fill').first()).toHaveClass(/complete/);
+  await expect(page.locator('.progress-fill').nth(1)).toHaveClass(/complete/);
+
+  expect(errors, `browser errors:\n${errors.join('\n')}`).toEqual([]);
+});
+
+test('marking several codes no-match at once creates a distinct row per code, not one shared group', async ({ page }) => {
+  await page.goto('./');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+
+  const csvInput = page.locator('input[type=file][accept*="csv"]');
+  await csvInput.first().setInputFiles(A);
+  await page.getByRole('button', { name: 'Build hierarchy' }).click();
+  await csvInput.first().setInputFiles(B);
+  await page.getByRole('button', { name: 'Build hierarchy' }).click();
+  for (const b of await page.locator('.controls button', { hasText: 'Expand' }).all()) await b.click();
+
+  // 11121 and 11211 sit in unrelated branches — selecting both and marking
+  // them no-match together must not bundle them into a single multi-code row.
+  await page.locator('.node', { hasText: '11121' }).first().click();
+  await page.locator('.node', { hasText: '11211' }).first().click();
+  await page.getByRole('button', { name: /Mark 2 as no match/ }).click();
+
+  await expect(page.locator('.row')).toHaveCount(2);
+  const row11121 = page.locator('.row', { hasText: '11121' });
+  const row11211 = page.locator('.row', { hasText: '11211' });
+  await expect(row11121).toBeVisible();
+  await expect(row11211).toBeVisible();
+  // Each row holds only its own single code, not both.
+  await expect(row11121.locator('.bubble')).toHaveCount(1);
+  await expect(row11211.locator('.bubble')).toHaveCount(1);
+});
+
+test('the mapping arrow toggles between equal and approximately-equal, and it\'s exported', async ({ page }) => {
+  await page.goto('./');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+
+  const csvInput = page.locator('input[type=file][accept*="csv"]');
+  await csvInput.first().setInputFiles(A);
+  await page.getByRole('button', { name: 'Build hierarchy' }).click();
+  await csvInput.first().setInputFiles(B);
+  await page.getByRole('button', { name: 'Build hierarchy' }).click();
+  for (const b of await page.locator('.controls button', { hasText: 'Expand' }).all()) await b.click();
+
+  await page.locator('.node', { hasText: '11111' }).first().click();
+  await page.locator('.node', { hasText: '01.11' }).first().click();
+  await page.getByRole('button', { name: 'Link' }).click();
+
+  // A two-way arrow, not a plain right-arrow.
+  const relBtn = page.locator('.row').first().locator('.rel');
+  await expect(relBtn).toHaveText('⇄');
+
+  await relBtn.click();
+  await expect(relBtn).toHaveText('≈');
+
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByRole('button', { name: 'Export crosswalk (.zip)' }).click(),
+  ]);
+  const entries = readZipEntries(readFileSync(await download.path()));
+  const parsed = Papa.parse(entries['crosswalk.csv'], { header: true }).data;
+  const exportedRow = parsed.find((r) => r.a_code === '11111' && r.b_code === '01.11');
+  expect(exportedRow.relationship).toBe('approximate');
+
+  // Toggling back flips it to "equal" again.
+  await relBtn.click();
+  await expect(relBtn).toHaveText('⇄');
 });

@@ -64,8 +64,9 @@
     const system = noMatchSide === 'A' ? systemA : systemB;
     const sel = noMatchSide === 'A' ? selectionA : selectionB;
     const leaves = expandToLeaves(system.tree, sel);
-    const name = defaultGroupName(system, leaves);
-    const { added, skipped } = markNoMatch(noMatchSide, [...leaves], name, note.trim());
+    // Each leaf becomes its own no-match row (see markNoMatch) — they aren't a
+    // group of related codes the way a real A<->B mapping is.
+    const { added, skipped } = markNoMatch(noMatchSide, [...leaves], note.trim());
     note = '';
     onLinked?.();
     say(`Marked ${added} code${added === 1 ? '' : 's'} as no match${skipped ? ` (${skipped} skipped — already mapped)` : ''}.`);

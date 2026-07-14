@@ -13,7 +13,9 @@
   let codeCol = $state(guess.code ?? '');
   let titleCol = $state(guess.title ?? '');
   let descCol = $state(guess.description ?? ''); // optional long-form description
-  let autoParents = $state(true); // auto mode only: synthesize missing ancestor codes
+  // auto mode only: whether to synthesize missing/colliding ancestor codes, or
+  // assume the file already has an explicit row for every ancestor level.
+  let autoParents = $state(true);
 
   let canContinue = $derived(codeCol && titleCol && (levelMode === 'auto' || levelCol));
   let preview = $derived(rows.slice(0, 5));
@@ -60,10 +62,28 @@
         </select>
       </label>
     {:else}
-      <label class="checkbox">
-        <input type="checkbox" bind:checked={autoParents} />
-        Automatically create missing parent codes (e.g. synthesize "01" if only "01.a"/"01.b" exist)
-      </label>
+      <div class="parent-mode">
+        <label class="radio">
+          <input type="radio" name="parentMode" value={false} bind:group={autoParents} />
+          Parent codes already included
+        </label>
+        <label class="radio">
+          <input type="radio" name="parentMode" value={true} bind:group={autoParents} />
+          Auto-generate parent codes
+        </label>
+      </div>
+      <p class="hint">
+        {#if autoParents}
+          Every code is treated as a child; missing ancestor codes are synthesized
+          (e.g. "01" from "01.a"/"01.b"). If an ancestor code coincides with a code
+          that's already provided (e.g. both "20" and "20.w" are in the file), a
+          disambiguated "20 (group)" code is generated instead of reusing "20" as
+          the parent.
+        {:else}
+          Assumes the file already has an explicit row for every ancestor level;
+          each code nests directly under its own matching ancestor row.
+        {/if}
+      </p>
     {/if}
     <label>
       <span>Code column</span>
@@ -143,6 +163,23 @@
     gap: 5px;
     cursor: pointer;
   }
+  .parent-mode {
+    display: flex;
+    gap: 16px;
+    font-size: 12px;
+    margin-bottom: 4px;
+  }
+  .parent-mode .radio {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    cursor: pointer;
+  }
+  .hint {
+    margin: 0;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
   .fields {
     display: grid;
     gap: 10px;
@@ -153,13 +190,6 @@
     gap: 4px;
     font-size: 12px;
     color: var(--text-muted);
-  }
-  label.checkbox {
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    gap: 6px;
-    cursor: pointer;
   }
   label em {
     color: var(--accent);

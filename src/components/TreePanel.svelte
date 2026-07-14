@@ -1,4 +1,5 @@
 <script>
+  import { untrack } from 'svelte';
   import { flattenTree, expandToLeaves, leafCodesOf, compactCodes } from '../lib/hierarchy.js';
   import editIcon from '@material-design-icons/svg/filled/edit.svg?raw';
 
@@ -49,6 +50,43 @@
       : null,
   );
 
+  // Searching no longer force-opens every matching section on every render
+  // (see flattenTree) — that made it impossible to collapse a section that's
+  // part of the search results. Instead, starting or refining a search
+  // auto-reveals matches once, by expanding their ancestors; the user is then
+  // free to collapse any of those sections without them springing back open.
+  // `untrack` keeps this effect from re-firing off its own writes to
+  // `expanded` (or the user's later manual toggles) — it only reacts to the
+  // query itself changing.
+  $effect(() => {
+    if (!system || !normalizedQuery) return;
+    const q = normalizedQuery;
+    const tree = system.tree;
+    untrack(() => {
+      const next = new Set(expanded);
+      let changed = false;
+      const walk = (node, ancestors) => {
+        let anyMatch =
+          node.code.toLowerCase().includes(q) || node.title.toLowerCase().includes(q);
+        const nextAncestors = [...ancestors, node.code];
+        for (const child of tree.childrenOf.get(node.code) ?? []) {
+          if (walk(child, nextAncestors)) anyMatch = true;
+        }
+        if (anyMatch) {
+          for (const a of ancestors) {
+            if (!next.has(a)) {
+              next.add(a);
+              changed = true;
+            }
+          }
+        }
+        return anyMatch;
+      };
+      tree.roots.forEach((r) => walk(r, []));
+      if (changed) expanded = next;
+    });
+  });
+
   let rows = $derived(system ? flattenTree(system.tree, expanded, matcher) : []);
   let warnings = $derived(system?.tree.warnings ?? []);
 
@@ -61,6 +99,65 @@
       : 0,
   );
   let progressPct = $derived(leafTotal ? Math.round((leafMapped / leafTotal) * 100) : 0);
+
+  // Per-node mapped/total leaf counts (bottom-up), driving both the fraction
+  // badges shown on ancestor nodes and the auto-collapse-when-complete effect
+  // below — computed once per render rather than re-walking each node's whole
+  // subtree via expandToLeaves.
+  let nodeProgress = $derived.by(() => {
+    const map = new Map();
+    if (!system) return map;
+    const { childrenOf } = system.tree;
+    const visit = (node) => {
+      const children = childrenOf.get(node.code) ?? [];
+      if (children.length === 0) {
+        const mapped = (counts.get(node.code) ?? 0) > 0 || noMatchCodes.has(node.code) ? 1 : 0;
+        const p = { mapped, total: 1 };
+        map.set(node.code, p);
+        return p;
+      }
+      let mapped = 0;
+      let total = 0;
+      for (const child of children) {
+        const p = visit(child);
+        mapped += p.mapped;
+        total += p.total;
+      }
+      const p = { mapped, total };
+      map.set(node.code, p);
+      return p;
+    };
+    system.tree.roots.forEach(visit);
+    return map;
+  });
+
+  // Auto-collapse a section the moment every code beneath it becomes mapped —
+  // but only on that transition, not on every render, so a user who reopens an
+  // already-complete section (e.g. to double-check it) doesn't get fought.
+  let seenComplete = new Set();
+  $effect(() => {
+    if (!system) return;
+    const progress = nodeProgress;
+    untrack(() => {
+      const next = new Set(expanded);
+      let changed = false;
+      for (const [code, p] of progress) {
+        const complete = p.total > 0 && p.mapped === p.total;
+        if (complete) {
+          if (!seenComplete.has(code)) {
+            seenComplete.add(code);
+            if (next.has(code)) {
+              next.delete(code);
+              changed = true;
+            }
+          }
+        } else {
+          seenComplete.delete(code);
+        }
+      }
+      if (changed) expanded = next;
+    });
+  });
 
   function toggle(code) {
     const next = new Set(expanded);
@@ -83,6 +180,29 @@
   function select(code, locked) {
     if (locked) return; // already mapped elsewhere and uniqueMappingOnly is on — refuse the click outright
     onToggle?.(code); // click toggles membership in the selection set
+  }
+
+  // A node with children isn't individually selected by clicking it while
+  // unselected — that instead runs "select unmapped" over its whole subtree
+  // (same action as the old dedicated button, now folded into the row itself
+  // since a separate button was redundant once this became the row's own
+  // click behavior). It *can* end up selected though — e.g. selectUnmapped's
+  // own compaction, or a fully-mapped parent's bubble display, can leave a
+  // parent code itself in the selection set — and clicking it again must
+  // deselect it like any other selected code, not re-run select-unmapped
+  // (which could unexpectedly grow the selection instead of clearing it, and
+  // — reported regression — previously left it stuck selected with no way to
+  // click it back off). Leaf nodes keep their normal toggle-select behavior.
+  function nodeClick(node, hasChildren, locked, isSelected) {
+    if (hasChildren) {
+      if (isSelected) {
+        onToggle?.(node.code);
+        return;
+      }
+      selectUnmapped(node.code);
+      return;
+    }
+    select(node.code, locked);
   }
 
   // Selects every not-yet-mapped leaf descendant of `code` (leaves the rest of
@@ -194,7 +314,7 @@
       aria-valuemax={leafTotal}
     >
       <div class="progress-track">
-        <div class="progress-fill" style="width: {progressPct}%"></div>
+        <div class="progress-fill" class:complete={progressPct === 100} style="width: {progressPct}%"></div>
       </div>
       <span class="progress-label">{leafMapped} / {leafTotal} mapped</span>
     </div>
@@ -219,7 +339,8 @@
       {@const isSelected = selected.has(node.code)}
       {@const isNoMatch = noMatchCodes.has(node.code)}
       {@const isMapped = count > 0 || isNoMatch}
-      {@const isLocked = uniqueMappingOnly && isMapped && !isSelected}
+      {@const isLocked = !hasChildren && uniqueMappingOnly && isMapped && !isSelected}
+      {@const progress = nodeProgress.get(node.code) ?? { mapped: 0, total: 0 }}
       <div
         class="node"
         class:selected={isSelected}
@@ -230,12 +351,12 @@
         aria-disabled={isLocked}
         tabindex="0"
         draggable="true"
-        title={isLocked
-          ? 'Already part of another mapping — turn off “Only allow each code to be mapped once” to reuse it here'
-          : node.description || undefined}
+        title={node.description || undefined}
         style="padding-left: {node.depth * 16 + 8}px"
-        onclick={() => select(node.code, isLocked)}
-        onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), select(node.code, isLocked))}
+        onclick={() => nodeClick(node, hasChildren, isLocked, isSelected)}
+        onkeydown={(e) =>
+          (e.key === 'Enter' || e.key === ' ') &&
+          (e.preventDefault(), nodeClick(node, hasChildren, isLocked, isSelected))}
         ondragstart={(e) => {
           e.dataTransfer.setData('text/plain', node.code);
           e.dataTransfer.setData('application/x-crosswalk-side', accent);
@@ -253,7 +374,7 @@
               toggle(node.code);
             }}
           >
-            <span class:open={expanded.has(node.code) || normalizedQuery}>▶</span>
+            <span class:open={expanded.has(node.code)}>▶</span>
           </button>
         {:else}
           <span class="twist spacer"></span>
@@ -262,21 +383,19 @@
         <span class="desc">{#each highlight(node.title) as p}<span class:hit={p.hit}>{p.t}</span>{/each}</span>
         {#if isNoMatch}
           <span class="badge nomatch" title="Marked as no match">∅ no match</span>
-        {:else if count > 0}
-          <span class="badge" title="{count} mapping{count > 1 ? 's' : ''}">{count}</span>
-        {/if}
-        {#if hasChildren}
-          <button
-            class="select-unmapped"
-            title="Select all not-yet-mapped codes under {node.code}"
-            aria-label="Select all not-yet-mapped codes under {node.code}"
-            onclick={(e) => {
-              e.stopPropagation();
-              selectUnmapped(node.code);
-            }}
+        {:else if !hasChildren}
+          {#if count > 0}
+            <span class="badge full leaf" title="Mapped" aria-label="Mapped">✓</span>
+          {/if}
+        {:else}
+          <span
+            class="badge"
+            class:zero={progress.mapped === 0}
+            class:full={progress.total > 0 && progress.mapped === progress.total}
+            title="{progress.mapped} / {progress.total} mapped"
           >
-            ◎
-          </button>
+            {progress.mapped}/{progress.total}
+          </span>
         {/if}
       </div>
     {/each}
@@ -398,6 +517,9 @@
     border-radius: inherit;
     transition: width 0.15s ease;
   }
+  .progress-fill.complete {
+    background: var(--success);
+  }
   .progress-label {
     flex: none;
     font-size: 11px;
@@ -430,7 +552,7 @@
   }
   .tree {
     overflow-y: auto;
-    overflow-x: hidden; /* long descriptions ellipsize rather than scroll the panel */
+    overflow-x: hidden; /* long titles wrap onto further lines rather than scroll the panel */
     flex: 1;
     min-height: 0;
     padding: 4px 0;
@@ -442,7 +564,7 @@
   }
   .node {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 6px;
     padding: 4px 8px;
     cursor: pointer;
@@ -458,9 +580,6 @@
   .node.mapped .code,
   .node.mapped .desc {
     opacity: 0.55;
-  }
-  .node.locked {
-    cursor: not-allowed;
   }
   .node.locked:hover {
     background: none;
@@ -494,42 +613,20 @@
   .twist.spacer {
     display: inline-block;
   }
-  .select-unmapped {
-    border: none;
-    background: none;
-    padding: 2px;
-    width: 20px;
-    height: 20px;
-    flex: none;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--text-muted);
-    border-radius: var(--radius-sm);
-    opacity: 0;
-    transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease;
-  }
-  .node:hover .select-unmapped,
-  .select-unmapped:focus-visible {
-    opacity: 1;
-  }
-  .select-unmapped:hover {
-    background: var(--accent-soft);
-    color: var(--accent);
-  }
   .code {
     font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
     font-weight: 600;
     font-size: 12px;
     flex: none;
+    padding-top: 3px;
   }
   .desc {
     color: var(--text-muted);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    white-space: normal;
+    overflow-wrap: anywhere;
     flex: 1;
     min-width: 0;
+    padding-top: 3px;
   }
   .hit {
     background: color-mix(in srgb, var(--accent) 30%, transparent);
@@ -551,5 +648,17 @@
     color: var(--text-muted);
     border: 1px solid var(--border);
     font-weight: 500;
+  }
+  .badge.zero {
+    background: var(--surface-2);
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+  }
+  .badge.full {
+    background: var(--success);
+    color: var(--success-contrast);
+  }
+  .badge.leaf {
+    font-size: 12px;
   }
 </style>

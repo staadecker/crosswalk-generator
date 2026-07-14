@@ -5,9 +5,10 @@ import { isNoMatch } from './stores.js';
  * Mode A export: one row per A-leaf × B-leaf pair within each group (the full
  * N×N cross-product), joined to descriptions. A no-match group (see
  * isNoMatch) has no counterpart on one side, so it produces one row per code
- * on its populated side with the other side left blank.
+ * on its populated side with the other side left blank (and no relationship,
+ * since there's no correspondence to qualify).
  *
- * @param {object[]} groups  mapping groups: { id, name, aLeafCodes, bLeafCodes, note }
+ * @param {object[]} groups  mapping groups: { id, name, aLeafCodes, bLeafCodes, note, approx }
  * @param {object|null} systemA  system A (has tree.byCode)
  * @param {object|null} systemB  system B
  * @returns {Array<object>}
@@ -28,6 +29,7 @@ export function buildCrosswalkRows(groups, systemA, systemB) {
           b_code: aOnly ? '' : code,
           b_title: aOnly ? '' : byCode.get(code)?.title ?? '',
           group_name: g.name,
+          relationship: '',
           note: g.note ?? '',
         });
       }
@@ -41,6 +43,7 @@ export function buildCrosswalkRows(groups, systemA, systemB) {
           b_code: t,
           b_title: bByCode.get(t)?.title ?? '',
           group_name: g.name,
+          relationship: g.approx ? 'approximate' : 'equal',
           note: g.note ?? '',
         });
       }
@@ -58,6 +61,7 @@ export function crosswalkToCsv(rows) {
       'b_code',
       'b_title',
       'group_name',
+      'relationship',
       'note',
     ],
   });
@@ -76,6 +80,7 @@ export function buildAToNameRows(groups, systemA) {
         a_code: code,
         a_title: aByCode.get(code)?.title ?? '',
         group_name: g.name,
+        relationship: isNoMatch(g) ? '' : g.approx ? 'approximate' : 'equal',
       });
     }
   }
@@ -84,7 +89,7 @@ export function buildAToNameRows(groups, systemA) {
 
 /** Serialize buildAToNameRows() output to CSV. */
 export function aToNameCsv(rows) {
-  return Papa.unparse(rows, { columns: ['a_code', 'a_title', 'group_name'] });
+  return Papa.unparse(rows, { columns: ['a_code', 'a_title', 'group_name', 'relationship'] });
 }
 
 /**
@@ -100,6 +105,7 @@ export function buildNameToBRows(groups, systemB) {
         group_name: g.name,
         b_code: code,
         b_title: bByCode.get(code)?.title ?? '',
+        relationship: isNoMatch(g) ? '' : g.approx ? 'approximate' : 'equal',
       });
     }
   }
@@ -108,7 +114,7 @@ export function buildNameToBRows(groups, systemB) {
 
 /** Serialize buildNameToBRows() output to CSV. */
 export function nameToBCsv(rows) {
-  return Papa.unparse(rows, { columns: ['group_name', 'b_code', 'b_title'] });
+  return Papa.unparse(rows, { columns: ['group_name', 'b_code', 'b_title', 'relationship'] });
 }
 
 /** Trigger a browser download of `content` (text) as `filename`. */

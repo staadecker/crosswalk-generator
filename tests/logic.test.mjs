@@ -14,7 +14,6 @@ import {
   expandToLeaves,
   compactCodes,
   leafCodesOf,
-  assignAutoLevels,
   buildAutoHierarchy,
   synthesizeMissingParents,
 } from '../src/lib/hierarchy.js';
@@ -31,6 +30,7 @@ import {
   addGroup,
   markNoMatch,
   renameGroup,
+  toggleApprox,
   updateGroupNote,
   addCodesToGroup,
   removeCodesFromGroup,
@@ -109,9 +109,22 @@ check(
   flattenTree(sysA.tree, new Set(sysA.tree.nodes.map((n) => n.code))).length === sysA.tree.nodes.length,
   'fully expanded view shows every node',
 );
-const filtered = flattenTree(sysA.tree, new Set(), (n) => n.title.toLowerCase().includes('soybean'));
+// A match no longer force-opens its ancestors on every call — the caller
+// (TreePanel) is responsible for seeding `expanded` when a search starts, so
+// that the user can subsequently collapse a section that's part of the
+// results without it springing back open (see flattenTree's docstring).
+const filteredCollapsed = flattenTree(sysA.tree, new Set(), (n) => n.title.toLowerCase().includes('soybean'));
+check(
+  filteredCollapsed.map((r) => r.node.code).join(',') === '11',
+  'search with nothing expanded shows only the matching root, not its (matching) children — so search results can be collapsed',
+);
+const filtered = flattenTree(
+  sysA.tree,
+  new Set(['11', '111', '1111']),
+  (n) => n.title.toLowerCase().includes('soybean'),
+);
 const fc = filtered.map((r) => r.node.code);
-check(fc.includes('11111'), 'search "soybean" includes the matching leaf');
+check(fc.includes('11111'), 'search "soybean" includes the matching leaf once its ancestors are expanded');
 check(fc.includes('11') && fc.includes('111') && fc.includes('1111'), 'search keeps ancestors of a match');
 check(!fc.includes('31'), 'search excludes unrelated subtrees');
 
@@ -243,16 +256,31 @@ addGroup(naicsOilseedLeaves, [...expandToLeaves(sysB.tree, ['10.61'])], 'Oilseed
 }
 
 // --- no-match (both sides) + dedupe against real mappings ---
-const nm1 = markNoMatch('A', ['54151'], 'Computer Systems Design and Related Services');
+const nm1 = markNoMatch('A', ['54151']);
 check(nm1.added === 1, 'an A code can be marked no match');
 const nmGroup = get(mappings).find((g) => g.aLeafCodes.includes('54151'));
 check(isNoMatch(nmGroup), 'a one-sided group is reported as no-match');
+check(nmGroup.name === '54151', 'a no-match row is named after its own code');
 
-const nm2 = markNoMatch('B', ['62.01'], 'Computer programming activities');
+const nm2 = markNoMatch('B', ['62.01']);
 check(nm2.added === 1, 'a B code can be marked no match');
 
-const nm3 = markNoMatch('A', ['11111'], 'dup'); // already mapped
+const nm3 = markNoMatch('A', ['11111']); // already mapped
 check(nm3.added === 0 && nm3.skipped === 1, 'no-match is skipped for an already-mapped code');
+
+// Marking several codes no-match in one call gives each its own row, not one
+// shared multi-code group — they aren't related to each other the way a real
+// many-to-many mapping's codes are.
+{
+  const before = get(mappings).length;
+  const nmBatch = markNoMatch('A', ['11121', '11211']);
+  check(nmBatch.added === 2, 'both codes in a batch are marked no match');
+  check(get(mappings).length === before + 2, 'a batch of no-match codes creates one row per code, not a single shared group');
+  const g11121 = get(mappings).find((g) => g.aLeafCodes.includes('11121'));
+  const g11211 = get(mappings).find((g) => g.aLeafCodes.includes('11211'));
+  check(g11121.id !== g11211.id, 'each no-match code lands in its own distinct group');
+  check(g11121.aLeafCodes.length === 1 && g11211.aLeafCodes.length === 1, 'each no-match row holds exactly its own code');
+}
 
 // A real mapping added later removes (or shrinks) an existing no-match entry for that code.
 addGroup(['54151'], ['69.20'], 'Computer Systems Design and Related Services');
@@ -276,13 +304,28 @@ const rows = buildCrosswalkRows(get(mappings), sysA, sysB);
 const soy = rows.find((r) => r.a_code === '11111' && r.b_code === '01.11');
 check(soy.a_title === 'Soybean Farming', 'crosswalk joins the A title');
 check(soy.b_title.includes('cereals'), 'crosswalk joins the B title');
+check(soy.relationship === 'equal', 'a group defaults to "equal" (not approximate)');
 const noMatchRow = rows.find((r) => r.a_code === '' && r.b_code === '62.01');
 check(noMatchRow && noMatchRow.b_title.includes('programming'), 'no-match row exports blank A + populated B');
+check(noMatchRow.relationship === '', 'a no-match row has no relationship (nothing to qualify)');
 const header = crosswalkToCsv(rows).split(/\r?\n/)[0];
 check(
-  header === 'a_code,a_title,b_code,b_title,group_name,note',
-  'exported single-file CSV has the expected 6-column header',
+  header === 'a_code,a_title,b_code,b_title,group_name,relationship,note',
+  'exported single-file CSV has the expected 7-column header',
 );
+
+// --- toggleApprox: a group can be flagged "approximately equal" instead of "equal" ---
+{
+  const soyGroup = get(mappings).find((g) => g.aLeafCodes.includes('11111') && g.bLeafCodes.includes('01.11'));
+  check(soyGroup.approx === false, 'a new group is "equal" by default');
+  toggleApprox(soyGroup.id);
+  check(get(mappings).find((g) => g.id === soyGroup.id).approx === true, 'toggleApprox flips a group to approximate');
+  const approxRows = buildCrosswalkRows(get(mappings), sysA, sysB);
+  const approxSoy = approxRows.find((r) => r.a_code === '11111' && r.b_code === '01.11');
+  check(approxSoy.relationship === 'approximate', 'the export reflects the toggled relationship');
+  toggleApprox(soyGroup.id); // flip back so later checks in this file see the original state
+  check(get(mappings).find((g) => g.id === soyGroup.id).approx === false, 'toggleApprox flips back to equal');
+}
 
 // --- export, mode B: two files (A leaf -> group name, group name -> B leaf) ---
 const aRows = buildAToNameRows(get(mappings), sysA);
@@ -300,12 +343,20 @@ check(
   'name-to-b file maps each group name to its B leaves',
 );
 check(
-  aToNameCsv(aRows).split(/\r?\n/)[0] === 'a_code,a_title,group_name',
-  'a-to-name CSV has the expected 3-column header',
+  aToNameCsv(aRows).split(/\r?\n/)[0] === 'a_code,a_title,group_name,relationship',
+  'a-to-name CSV has the expected 4-column header',
 );
 check(
-  nameToBCsv(bRows).split(/\r?\n/)[0] === 'group_name,b_code,b_title',
-  'name-to-b CSV has the expected 3-column header',
+  nameToBCsv(bRows).split(/\r?\n/)[0] === 'group_name,b_code,b_title,relationship',
+  'name-to-b CSV has the expected 4-column header',
+);
+check(
+  aRows.find((r) => r.a_code === '11111').relationship === 'equal',
+  'a-to-name file reports the relationship too, defaulting to "equal"',
+);
+check(
+  bRows.find((r) => r.b_code === '62.01').relationship === '',
+  'name-to-b file leaves relationship blank for a no-match row',
 );
 
 // --- removeMapping still drops a whole group by id ---
@@ -415,8 +466,10 @@ check(noDesc.byCode.get('w').description === '', 'node.description is blank when
     defaultGroupName(sysA, new Set(['11111', '11211'])).split(';').sort().join(';') === '11111;112',
     'partial coverage keeps distinct codes, semicolon-joined (not space/"+"-joined titles)',
   );
-  const many = defaultGroupName(sysA, new Set(['11111', '11121', '11211', '31111']));
-  check(many.includes(';+2 more'), `more than 3 codes truncates with a "+N more" suffix (got "${many}")`);
+  check(
+    defaultGroupName(sysA, new Set(['11111', '11121', '11211', '31111'])) === '11111;1112;112;3111',
+    'more than 3 codes are still concatenated in full, no "+N more" truncation',
+  );
   check(
     defaultGroupName(null, ['54151']) === '54151',
     'without a system, the raw leaf codes are used as-is',
@@ -424,14 +477,6 @@ check(noDesc.byCode.get('w').description === '', 'node.description is blank when
 }
 
 // --- auto level detection: infer hierarchy depth from code structure alone ---
-check(
-  assignAutoLevels([{ c: '11' }, { c: '111' }, { c: '1111' }], 'c').join(',') === '1,2,3',
-  'assignAutoLevels ranks codes by length when none contain a "."',
-);
-check(
-  assignAutoLevels([{ c: 'A' }, { c: '01' }, { c: '01.1' }, { c: '01.11' }], 'c').join(',') === '1,2,3,4',
-  'assignAutoLevels ranks by dot-count (with a length tiebreak for equal dot-counts) once any code has a "."',
-);
 {
   const autoA = buildAutoHierarchy(A.rows, { code: gA.code, title: gA.title });
   check(autoA.warnings.length === 0, `auto-detected NAICS hierarchy builds with no warnings (${autoA.warnings.join('; ')})`);
@@ -447,6 +492,34 @@ check(
   check(autoB.byCode.get('01').parent === 'A', 'auto-detected NACE: 01 nests under section A');
   check(autoB.byCode.get('01.1').parent === '01', 'auto-detected NACE: 01.1 nests under 01');
   check(autoB.byCode.get('01.11').parent === '01.1', 'auto-detected NACE: 01.11 nests under 01.1');
+}
+{
+  // Regression: a 2-digit dot-suffix code ("13.20") used to be nested under an
+  // unrelated 1-digit sibling ("13.1") instead of under its nearest actual
+  // structural parent. Its own prefix "13.2" exists in the dataset, so it
+  // should nest there (the same rule that already applies to NACE's "01.11"
+  // class code nesting under its "01.1" group, just one dot-segment later).
+  const rows = [
+    { c: '13', t: 'Sector 13' },
+    { c: '13.1', t: 'Sub 1' },
+    { c: '13.2', t: 'Sub 2' },
+    { c: '13.20', t: 'Sub 20' },
+  ];
+  const tree = buildAutoHierarchy(rows, { code: 'c', title: 't' });
+  check(tree.byCode.get('13.1').parent === '13', 'auto-detected: 13.1 nests under 13');
+  check(tree.byCode.get('13.2').parent === '13', 'auto-detected: 13.2 nests under 13');
+  check(tree.byCode.get('13.20').parent === '13.2', 'auto-detected: 13.20 nests under its own prefix 13.2, not under unrelated 13.1');
+}
+{
+  // When the more-specific prefix isn't itself present in the dataset, fall
+  // back to the next-nearest ancestor instead of leaving an orphan root.
+  const rows = [
+    { c: '13', t: 'Sector 13' },
+    { c: '13.1', t: 'Sub 1' },
+    { c: '13.20', t: 'Sub 20, no 13.2 in this dataset' },
+  ];
+  const tree = buildAutoHierarchy(rows, { code: 'c', title: 't' });
+  check(tree.byCode.get('13.20').parent === '13', 'auto-detected: 13.20 falls back to 13 when 13.2 does not exist');
 }
 
 // --- synthesizeMissingParents: fill in ancestor codes implied by structure but absent ---
@@ -464,16 +537,121 @@ check(
   check(tree.byCode.get('01').parent === null, 'the synthesized 01 is itself a root here');
 }
 {
-  // An already-present parent is left untouched: nothing to synthesize, same reference back.
+  // Nothing missing and nothing colliding: same reference back.
+  const rows = [
+    { c: '01', t: 'Section A' },
+    { c: '02', t: 'Section B' },
+  ];
+  check(synthesizeMissingParents(rows, { code: 'c', title: 't' }) === rows, 'nothing is synthesized when there is nothing missing or colliding');
+}
+{
+  // Every provided code is treated as a leaf/child, never as an implicit
+  // structural parent — so a real code that coincides with another real
+  // code's natural ancestor is "already taken" and gets replaced by a
+  // disambiguated "<code> (group)" placeholder, with the real code demoted
+  // to a sibling-leaf under it. This is the literal "20"/"20.w" example from
+  // the feature request, expressed with "01"/"01.a" (dot convention).
   const rows = [
     { c: '01', t: 'Section' },
     { c: '01.a', t: 'Sub A' },
   ];
-  check(synthesizeMissingParents(rows, { code: 'c', title: 't' }) === rows, 'nothing is synthesized when the parent already exists');
+  const synthesized = synthesizeMissingParents(rows, { code: 'c', title: 't' });
+  const codes = synthesized.map((r) => r.c).sort();
+  check(codes.join(',') === '01,01 (group),01.a', `a colliding ancestor is replaced by a "(group)" node (got ${codes.join(',')})`);
+  const tree = buildAutoHierarchy(rows, { code: 'c', title: 't' }, { synthesizeParents: true });
+  check(tree.byCode.get('01 (group)').parent === null, '"01 (group)" is the new root');
+  check(tree.byCode.get('01').parent === '01 (group)', 'the real "01" is demoted to a child of "01 (group)"');
+  check(tree.byCode.get('01.a').parent === '01 (group)', '"01.a" nests under "01 (group)" too, as a sibling of real "01"');
+}
+{
+  // The literal "20"/"20.w" example, on codes with no dot convention signal
+  // from either code alone (dot-ness is inferred dataset-wide).
+  const rows = [
+    { c: '20', t: 'Twenty' },
+    { c: '20.w', t: 'Twenty W' },
+  ];
+  const tree = buildAutoHierarchy(rows, { code: 'c', title: 't' }, { synthesizeParents: true });
+  check(tree.byCode.get('20 (group)').parent === null, '"20 (group)" is a new blank-title root');
+  check(tree.byCode.get('20 (group)').title === '', 'the synthesized group node has a blank title');
+  check(tree.byCode.get('20').parent === '20 (group)', 'real "20" becomes a child of "20 (group)"');
+  check(tree.byCode.get('20.w').parent === '20 (group)', '"20.w" becomes a sibling child of "20 (group)"');
+}
+{
+  // A chain of two colliding levels: "1", "1.2", "1.2.3" all provided. Each
+  // collision gets its own "(group)" node, and — exactly as in the
+  // single-level "20"/"20.w" case — the real colliding code always nests
+  // *under* its own group node, never as a bare sibling of it: "1.2.3" nests
+  // under a new "1.2 (group)", and so does the real "1.2" itself; "1.2 (group)"
+  // in turn (along with the real "1") nests under a new "1 (group)", the sole
+  // root — not the real "1.2" directly (regression: a real code that collides
+  // at *every* level of a chain used to get stuck under the wrong ancestor,
+  // because its own natural-chain parent was resolved before its own
+  // collision was discovered).
+  const rows = [
+    { c: '1', t: 'One' },
+    { c: '1.2', t: 'One Two' },
+    { c: '1.2.3', t: 'One Two Three' },
+  ];
+  const tree = buildAutoHierarchy(rows, { code: 'c', title: 't' }, { synthesizeParents: true });
+  check(tree.roots.length === 1 && tree.roots[0].code === '1 (group)', '"1 (group)" is the sole root');
+  const rootChildren = (tree.childrenOf.get('1 (group)') ?? []).map((n) => n.code).sort();
+  check(
+    rootChildren.join(',') === '1,1.2 (group)',
+    `"1 (group)" has real "1" and synthesized "1.2 (group)" as children, not real "1.2" directly (got ${rootChildren.join(',')})`,
+  );
+  check(tree.byCode.get('1.2').parent === '1.2 (group)', 'real "1.2" falls under its own "1.2 (group)", not directly under "1 (group)"');
+  check(tree.byCode.get('1.2.3').parent === '1.2 (group)', '"1.2.3" nests under the synthesized "1.2 (group)"');
+}
+{
+  // Regression: for a dot-only convention, synthesizing missing ancestors of
+  // "13.20.11"/"13.20.12" used to fabricate an extra intermediate level
+  // ("13.20.1") by trying progressively-shorter *digit* substrings within the
+  // trailing segment — appropriate for finding an *existing* more-specific
+  // code (see reparentDottedCodes / task "13.20 nests under 13.1"), but wrong
+  // for inventing brand-new placeholders: a dot-only system only ever implies
+  // one level per "."-segment, so only "13.20" (and "13") should be created,
+  // never a fabricated "13.2" or "13.20.1".
+  const rows = [
+    { c: '13.20.11', t: 'Sub 20, item 11' },
+    { c: '13.20.12', t: 'Sub 20, item 12' },
+  ];
+  const synthesized = synthesizeMissingParents(rows, { code: 'c', title: 't' });
+  const codes = synthesized.map((r) => r.c).sort();
+  check(
+    codes.join(',') === '13,13.20,13.20.11,13.20.12',
+    `only whole-segment ancestors ("13", "13.20") are synthesized, not a fabricated "13.2"/"13.20.1" (got ${codes.join(',')})`,
+  );
+  const tree = buildAutoHierarchy(rows, { code: 'c', title: 't' }, { synthesizeParents: true });
+  check(tree.byCode.get('13.20.11').parent === '13.20', '13.20.11 nests directly under the synthesized 13.20');
+  check(tree.byCode.get('13.20.12').parent === '13.20', '13.20.12 nests directly under the synthesized 13.20');
+  check(tree.byCode.get('13.20').parent === '13', '13.20 nests under the synthesized 13');
+}
+{
+  // Regression: the exact "26.a (group)" scenario reported — a real code that
+  // collides as another real code's natural ancestor must itself end up
+  // *nested under* its own "(group)" placeholder, not left stranded at its
+  // pre-collision (natural, non-"(group)") parent.
+  const rows = [
+    { c: '26', t: 'Section 26' },
+    { c: '26.a', t: 'Sub A' },
+    { c: '26.a.1', t: 'Sub A, item 1' },
+  ];
+  const tree = buildAutoHierarchy(rows, { code: 'c', title: 't' }, { synthesizeParents: true });
+  check(tree.byCode.has('26.a (group)'), '"26.a (group)" is created');
+  check(tree.byCode.get('26.a').parent === '26.a (group)', '"26.a" itself falls under "26.a (group)", not the plain "26"');
+  check(tree.byCode.get('26.a.1').parent === '26.a (group)', '"26.a.1" nests under "26.a (group)" too');
+  // "26" also collided (it's the natural ancestor of both "26.a" and
+  // "26.a.1"), so it too gets its own group, and "26.a (group)" nests there —
+  // not under the plain real "26".
+  check(tree.byCode.has('26 (group)'), '"26 (group)" is created too, since "26" is itself a collided ancestor');
+  check(tree.byCode.get('26').parent === '26 (group)', 'real "26" falls under its own "26 (group)"');
+  check(tree.byCode.get('26.a (group)').parent === '26 (group)', '"26.a (group)" nests under "26 (group)"');
 }
 {
   // Length-based convention: a specific branch missing two intermediate levels gets
   // both filled in, using the lengths already known from sibling branches (11/111/1111).
+  // Since "11" and "111" are themselves real codes that also serve as another real
+  // code's natural ancestor, they collide and get "(group)"-disambiguated too.
   const rows = [
     { c: '11', t: 'Root A' },
     { c: '111', t: 'Sub A' },
@@ -484,13 +662,14 @@ check(
   const synthesized = synthesizeMissingParents(rows, { code: 'c', title: 't' });
   const codes = synthesized.map((r) => r.c).sort();
   check(
-    codes.join(',') === '11,111,1111,31,311,3111,31111',
-    `length-based synthesis fills every missing intermediate level (got ${codes.join(',')})`,
+    codes.join(',') === '11,11 (group),111,111 (group),1111,31,31 (group),311,3111,31111',
+    `length-based synthesis fills missing levels and disambiguates colliding ones (got ${codes.join(',')})`,
   );
-  const tree = buildAutoHierarchy(synthesized, { code: 'c', title: 't' });
+  const tree = buildAutoHierarchy(rows, { code: 'c', title: 't' }, { synthesizeParents: true });
   check(tree.byCode.get('31111').parent === '3111', 'deep leaf nests under the synthesized 3111');
   check(tree.byCode.get('3111').parent === '311', 'synthesized 3111 nests under synthesized 311');
-  check(tree.byCode.get('311').parent === '31', 'synthesized 311 nests under the real 31');
+  check(tree.byCode.get('311').parent === '31 (group)', 'synthesized 311 nests under the new "31 (group)", not the real 31 directly');
+  check(tree.byCode.get('31').parent === '31 (group)', 'the real 31 is demoted to a sibling of 311 under "31 (group)"');
 }
 {
   // buildAutoHierarchy's own synthesizeParents option composes end-to-end.
@@ -521,21 +700,33 @@ check(
     { c: '31111', t: 'Deep leaf missing 311 and 3111' }, // forces synthesis of 311 and 3111
   ];
   const tree = buildAutoHierarchy(rows, { code: 'c', title: 't' }, { synthesizeParents: true });
-  check(tree.byCode.get('111').parent === '11', 'branch A: 111 nests under its own root 11, not root B');
-  check(tree.byCode.get('1111').parent === '111', 'branch A: 1111 nests under 111');
+  // 111 itself collided too (it's 1111's natural ancestor), so it falls under
+  // its own "111 (group)" rather than sitting directly under "11 (group)".
+  check(tree.byCode.get('111').parent === '111 (group)', 'branch A: 111 falls under its own "111 (group)"');
+  check(tree.byCode.get('111 (group)').parent === '11 (group)', 'branch A: "111 (group)" nests under "11 (group)", not root B');
+  check(tree.byCode.get('1111').parent === '111 (group)', 'branch A: 1111 nests under synthesized "111 (group)"');
   check(tree.byCode.get('31111').parent === '3111', 'branch B: deep leaf nests under synthesized 3111');
-  check(tree.roots.map((r) => r.code).sort().join(',') === '11,31', 'both original roots stay roots after synthesis');
+  check(
+    tree.roots.map((r) => r.code).sort().join(',') === '11 (group),31 (group)',
+    'both branches keep separate, un-merged roots after synthesis',
+  );
 }
 {
   // The exact scenario reported: auto-detecting codes on the full 2022 NAICS
   // descriptions sample must not dump unrelated subsectors (111, 112, 113, ...)
-  // under one unnamed synthesized parent.
+  // under one unnamed synthesized parent. This full sample already has an
+  // explicit row for every ancestor level (sectors, subsectors, industry
+  // groups, industries), so it represents "parent codes already included" —
+  // synthesizeParents: false is the correct mode for it (as for the app's
+  // bundled sample datasets, see SystemPanel.svelte); enabling collision-aware
+  // synthesis here would be a no-op anyway since nothing is missing, but would
+  // be the wrong mode to model this dataset as if the file ever changed.
   const naics2022 = await parseCsv(naics2022Csv);
   const g2022 = guessColumns(naics2022.fields, naics2022.rows);
   const tree = buildAutoHierarchy(
     naics2022.rows,
     { code: g2022.code, title: g2022.title },
-    { synthesizeParents: true },
+    { synthesizeParents: false },
   );
   check(tree.byCode.get('111').parent === '11', '111 (Crop Production) nests under sector 11 (Agriculture)');
   check(tree.byCode.get('112').parent === '11', '112 (Animal Production) nests under sector 11 (Agriculture)');
@@ -582,9 +773,12 @@ check(
   ];
   const tree = buildAutoHierarchy(rows, { code: 'c', title: 't' }, { synthesizeParents: true });
   check(tree.byCode.has('311'), 'synthesis still creates the missing intermediate "311"');
+  // Both "11" and "31" are real codes that also serve as another code's natural
+  // ancestor (11 for the real 111, 31 for the missing 311), so both collide and
+  // get replaced by "(group)" roots under the new collision-aware semantics.
   check(
-    tree.roots.map((r) => r.code).join(',') === '11,31',
-    `roots are sorted (11 before 31) even though "31" appeared first in the file (got ${tree.roots.map((r) => r.code).join(',')})`,
+    tree.roots.map((r) => r.code).join(',') === '11 (group),31 (group)',
+    `roots are sorted (11 (group) before 31 (group)) even though "31" appeared first in the file (got ${tree.roots.map((r) => r.code).join(',')})`,
   );
   const synthesizedSiblings = (tree.childrenOf.get('311') ?? []).map((n) => n.code);
   check(

@@ -93,8 +93,13 @@ export function buildHierarchy(rows, colMap) {
  * expanded codes and an optional filter predicate.
  *
  * When a filter is provided, a node is included if it matches OR any descendant
- * matches (ancestors are kept so matches stay reachable). Matching descendants
- * force their ancestors open regardless of the expanded set.
+ * matches (ancestors are kept so matches stay reachable). Whether a node's
+ * children are actually shown still depends on `expanded` either way — a
+ * caller that wants matches auto-revealed the first time a search starts (so
+ * the user isn't stuck manually expanding down to them) should seed `expanded`
+ * itself before calling this; a matching descendant no longer force-opens its
+ * ancestors on every call, since that made it impossible to collapse a
+ * section that's part of the current search results.
  *
  * @param {object} tree  result of buildHierarchy
  * @param {Set<string>} expanded  codes whose children are shown
@@ -128,9 +133,7 @@ export function flattenTree(tree, expanded, matches) {
     const isMatch = matches ? matches(node) : false;
     out.push({ node, isMatch, hasChildren });
 
-    // When filtering, force-open ancestors of matches. Otherwise honor `expanded`.
-    const open = matches ? true : expanded.has(node.code);
-    if (hasChildren && open) {
+    if (hasChildren && expanded.has(node.code)) {
       for (const child of children) walk(child);
     }
   };
@@ -272,6 +275,11 @@ function effectiveLength(code) {
   return parseHyphenRange(code)?.digits ?? code.length;
 }
 
+/** Whether a set of codes uses "." as an explicit hierarchy separator. */
+function usesDotSeparators(codes) {
+  return codes.some((c) => c.includes('.'));
+}
+
 /**
  * Rank every distinct code "shape" in a dataset by (dot-segment count, then
  * effective length — see effectiveLength), both ascending. This single
@@ -282,10 +290,13 @@ function effectiveLength(code) {
  * as a bonus, mixed datasets where a top level has no dots but isn't the same
  * length as the next dot-less level (e.g. NACE's single-letter sections vs its
  * 2-digit divisions: both have 0 dots, but the length tiebreak still separates
- * them into two ranks).
+ * them into two ranks — there's no literal string-prefix relationship between
+ * a letter and a number, so this document-order-driven ranking is the only
+ * way to nest them; contrast reparentDottedCodes below, which overrides this
+ * for dotted codes using an actual structural relationship instead).
  *
  * @param {string[]} codes
- * @returns {Map<string, number>}  "dots:length" key -> 1-based rank
+ * @returns {{ keyOf: (code: string) => string, rank: Map<string, number> }}
  */
 function rankCodeShapes(codes) {
   const keyOf = (code) => `${(code.match(/\./g) ?? []).length}:${effectiveLength(code)}`;
@@ -305,7 +316,7 @@ function rankCodeShapes(codes) {
  * @param {string} codeCol
  * @returns {Array<number|null>}  level per row (null for rows with no code)
  */
-export function assignAutoLevels(rows, codeCol) {
+function assignAutoLevels(rows, codeCol) {
   const codes = rows.map((r) => (r[codeCol] ?? '').trim()).filter((c) => c !== '');
   const { keyOf, rank } = rankCodeShapes(codes);
   return rows.map((r) => {
@@ -314,39 +325,50 @@ export function assignAutoLevels(rows, codeCol) {
   });
 }
 
-/** Whether a set of codes uses "." as an explicit hierarchy separator. */
-function usesDotSeparators(codes) {
-  return codes.some((c) => c.includes('.'));
-}
-
 /**
- * Given a code, guess the codes of its "missing" ancestors purely from string
- * structure: for dot-separated codes, repeatedly drop the last "."-segment
- * (e.g. "01.11" -> "01.1" -> "01"); for length-based codes, truncate to each
- * shorter effective code length actually present in the dataset (e.g. "11111"
- * -> "1111" -> "111" -> "11", when those lengths occur elsewhere in the data).
+ * Given a code, list its possible ancestor codes purely from string
+ * structure, nearest first:
  *
- * At a length where the dataset has a hyphenated sector-range code (e.g.
- * "48-49" covering plain prefixes 48-49), a plain truncated prefix that falls
- * inside that range resolves to the range code instead of a fabricated bare
- * prefix — e.g. truncating "491" to 2 digits yields "48-49", not a made-up "49".
+ * - Dot-separated codes: within the trailing "."-segment, progressively drop
+ *   one trailing character at a time before dropping the whole segment (e.g.
+ *   "01.111" -> "01.11" -> "01.1" -> "01"). This lets a longer trailing
+ *   segment resolve to a *more specific* existing ancestor when one exists
+ *   (e.g. "01.11" nests under an existing "01.1", and "13.20" nests under an
+ *   existing "13.2") rather than always jumping straight to the code with the
+ *   whole last segment dropped. A single-character trailing segment only
+ *   ever produces the whole-segment-drop candidate, since there's nothing
+ *   shorter to try within it.
+ * - Length-based codes: truncate to each shorter effective code length
+ *   actually present in the dataset (e.g. "11111" -> "1111" -> "111" -> "11",
+ *   nearest first), substituting a hyphenated sector-range code (e.g.
+ *   "48-49") for a plain truncated prefix that falls inside its range — e.g.
+ *   truncating "491" to 2 digits yields "48-49", not a made-up "49".
  *
  * @param {string} code
  * @param {'dots'|'length'} convention
  * @param {number[]} shorterLengths  distinct effective lengths < the code's own, ascending
  * @param {Map<number, {lo: number, hi: number, code: string}[]>} [hyphenRangesByDigits]
- * @returns {string[]}
+ * @returns {string[]}  candidate ancestor codes, nearest first
  */
 function guessAncestorCodes(code, convention, shorterLengths, hyphenRangesByDigits) {
   const chain = [];
   if (convention === 'dots') {
     let cur = code;
-    while (cur.includes('.')) {
-      cur = cur.slice(0, cur.lastIndexOf('.'));
-      chain.push(cur);
+    while (true) {
+      const lastDot = cur.lastIndexOf('.');
+      if (lastDot === -1) break;
+      const prefix = cur.slice(0, lastDot);
+      const lastSegment = cur.slice(lastDot + 1);
+      for (let k = lastSegment.length - 1; k >= 1; k--) {
+        chain.push(`${prefix}.${lastSegment.slice(0, k)}`);
+      }
+      chain.push(prefix);
+      cur = prefix;
     }
   } else {
-    for (const len of shorterLengths) {
+    // shorterLengths is ascending; walk it back-to-front for nearest first.
+    for (let i = shorterLengths.length - 1; i >= 0; i--) {
+      const len = shorterLengths[i];
       if (len >= effectiveLength(code)) continue;
       const prefix = code.slice(0, len);
       const ranges = hyphenRangesByDigits?.get(len);
@@ -359,31 +381,15 @@ function guessAncestorCodes(code, convention, shorterLengths, hyphenRangesByDigi
 }
 
 /**
- * Synthesize a blank-title row for any ancestor code implied by an existing
- * code's structure but not itself present in the dataset (e.g. "01.a" and
- * "01.b" exist but "01" doesn't — a "01" row is added so the hierarchy still
- * nests instead of leaving "01.a"/"01.b" as orphan roots).
+ * Precompute the shared context (dot-vs-length convention, distinct shorter
+ * effective lengths, hyphenated sector-range codes present) needed to run
+ * guessAncestorCodes across a whole dataset.
  *
- * Rows are returned in a proper depth-first order: each (real or synthesized)
- * parent is immediately followed by its own children before any other branch
- * resumes. This is stronger than merely "shallower rows sort first" — a flat
- * shallowest-first sort still interleaves unrelated branches at the same
- * depth, which breaks buildHierarchy's "parent is the *nearest* preceding
- * row with a smaller level" rule (e.g. a dataset with multiple depth-1
- * branches would see every depth-2 row across the whole file nest under
- * whichever depth-1 row happens to sort last, instead of its real parent).
- * Returns `rows` unchanged (same reference) when nothing is missing.
- *
- * @param {Record<string,string>[]} rows
- * @param {{ code: string, title: string }} colMap
- * @returns {Record<string,string>[]}
+ * @param {string[]} codes  every real (non-blank) code in the dataset
  */
-export function synthesizeMissingParents(rows, colMap) {
-  const { code: codeCol, title: titleCol } = colMap;
-  const realCodes = rows.map((r) => (r[codeCol] ?? '').trim()).filter((c) => c !== '');
-  const codes = new Set(realCodes);
-  const convention = usesDotSeparators([...codes]) ? 'dots' : 'length';
-  const shorterLengths = [...new Set([...codes].map(effectiveLength))].sort((a, b) => a - b);
+function ancestorContext(codes) {
+  const convention = usesDotSeparators(codes) ? 'dots' : 'length';
+  const shorterLengths = [...new Set(codes.map(effectiveLength))].sort((a, b) => a - b);
 
   // Hyphenated sector-range codes actually present in the dataset (e.g. "48-49"),
   // grouped by digit-width, so a plain truncated prefix that falls inside one
@@ -396,29 +402,172 @@ export function synthesizeMissingParents(rows, colMap) {
     if (!hyphenRangesByDigits.has(range.digits)) hyphenRangesByDigits.set(range.digits, []);
     hyphenRangesByDigits.get(range.digits).push({ lo: range.lo, hi: range.hi, code });
   }
+  return { convention, shorterLengths, hyphenRangesByDigits };
+}
 
-  // Immediate parent of every code that needs one (real or synthesized), found by
-  // walking each real code's full ancestor chain nearest-parent-first and
-  // recording (then continuing to walk up from) every ancestor along the way, so
-  // ancestors-of-ancestors get a parent too.
-  const parentOf = new Map();
-  const missing = new Set();
+/** guessAncestorCodes, always returned nearest-ancestor-first regardless of convention. */
+function nearestAncestorChain(code, ctx) {
+  return guessAncestorCodes(code, ctx.convention, ctx.shorterLengths, ctx.hyphenRangesByDigits);
+}
+
+/**
+ * Like nearestAncestorChain, but for dot-separated codes it only ever drops a
+ * whole "."-segment at a time — never the char-by-char sub-segment candidates
+ * nearestAncestorChain also tries (see guessAncestorCodes). Those sub-segment
+ * candidates exist to let reparentDottedCodes prefer an *existing* more
+ * specific code (e.g. NACE's real "01.1" for "01.11") without ever inventing
+ * one; synthesizeMissingParents, in contrast, may fabricate a brand-new
+ * placeholder for every rung it's given, so blindly reusing the same
+ * char-by-char ladder there manufactures spurious intermediate levels no
+ * dataset actually implied (e.g. "13.20.11" would get a fabricated "13.20.1"
+ * in between, when only "13.20" was ever a real level for that convention).
+ * The whole-segment-only ladder is dot-count exactly one shallower per rung,
+ * which is the only depth relationship synthesis can safely assume without
+ * evidence (an existing code) to justify a finer one.
+ */
+function wholeSegmentAncestorChain(code, ctx) {
+  if (ctx.convention !== 'dots') return nearestAncestorChain(code, ctx);
+  const chain = [];
+  let cur = code;
+  while (cur.includes('.')) {
+    cur = cur.slice(0, cur.lastIndexOf('.'));
+    chain.push(cur);
+  }
+  return chain;
+}
+
+/**
+ * Disambiguate a synthesized "group" placeholder's code against every code
+ * string already in use (real, or already synthesized), so the rare case
+ * where "<code> (group)" itself happens to collide with a real/used code
+ * still resolves to something unique instead of silently merging two nodes.
+ *
+ * @param {string} baseCode  the real code being replaced as a structural parent
+ * @param {Set<string>} used  every code string currently in use
+ * @returns {string}
+ */
+/**
+ * Internal column name synthesizeMissingParents stamps onto every row it
+ * returns, holding that row's true 1-based depth-first level — see the
+ * comment at its `visit` helper for why buildAutoHierarchy must use this
+ * instead of re-deriving levels from code shape once synthesis has run.
+ */
+const SYNTH_LEVEL_COL = '__synthLevel__';
+
+function disambiguateGroupCode(baseCode, used) {
+  let candidate = `${baseCode} (group)`;
+  let n = 2;
+  while (used.has(candidate)) {
+    candidate = `${baseCode} (group ${n})`;
+    n += 1;
+  }
+  return candidate;
+}
+
+/**
+ * Synthesize a blank-title row for any ancestor code implied by an existing
+ * code's structure but not itself present in the dataset (e.g. "01.a" and
+ * "01.b" exist but "01" doesn't — a "01" row is added so the hierarchy still
+ * nests instead of leaving "01.a"/"01.b" as orphan roots).
+ *
+ * Every provided code is treated as a leaf/child, never as an implicit
+ * structural parent: if a code's natural ancestor rung (per
+ * wholeSegmentAncestorChain) coincides with a code that is *itself* provided
+ * (not a synthesized placeholder), that real code is "already taken" and
+ * cannot double as the structural parent. Instead a new, disambiguated
+ * placeholder node is synthesized — literally "<code> (group)" (see
+ * disambiguateGroupCode for the rare fallback when even that string
+ * collides) — which becomes the parent of *both* the real code and whatever
+ * needed it as an ancestor (e.g. "20" and "20.w" both provided synthesizes a
+ * new "20 (group)" node, with real "20" and real "20.w" as its two children —
+ * the real code always ends up *nested under* its own group node, never left
+ * dangling as a bare sibling of it). This chains: if a colliding code's own
+ * natural parent is itself a colliding real code, that rung gets its own
+ * "(group)" node the same way, and so on up the tree (memoized per colliding
+ * code, so multiple codes sharing the same colliding ancestor share the same
+ * single group node). Only *whole* "."-segments are ever dropped when
+ * inferring an ancestor here (contrast reparentDottedCodes's finer
+ * char-by-char search for an *existing* more-specific code) — synthesis may
+ * fabricate a brand-new node for whatever rung it's given, so it must not
+ * guess at a depth finer than one level per "."-segment without an existing
+ * code to justify it. A rung that's missing entirely (not provided at all)
+ * still gets a plain blank-title placeholder at its literal code, exactly as
+ * before.
+ *
+ * Rows are returned in a proper depth-first order: each (real or synthesized)
+ * parent is immediately followed by its own children before any other branch
+ * resumes. This is stronger than merely "shallower rows sort first" — a flat
+ * shallowest-first sort still interleaves unrelated branches at the same
+ * depth, which breaks buildHierarchy's "parent is the *nearest* preceding
+ * row with a smaller level" rule (e.g. a dataset with multiple depth-1
+ * branches would see every depth-2 row across the whole file nest under
+ * whichever depth-1 row happens to sort last, instead of its real parent).
+ * Returns `rows` unchanged (same reference) when nothing is missing and
+ * nothing collides.
+ *
+ * @param {Record<string,string>[]} rows
+ * @param {{ code: string, title: string }} colMap
+ * @returns {Record<string,string>[]}
+ */
+export function synthesizeMissingParents(rows, colMap) {
+  const { code: codeCol, title: titleCol } = colMap;
+  const realCodes = rows.map((r) => (r[codeCol] ?? '').trim()).filter((c) => c !== '');
+  const codes = new Set(realCodes);
+  const ctx = ancestorContext(realCodes);
+
+  // Pass 1: find every real code that's "taken" — i.e. appears as an ancestor
+  // rung of some *other* real code — before assigning any parent pointers.
+  // Doing this fully upfront (rather than discovering a collision and fixing
+  // up parents in the very same pass) matters: a colliding code is *also*
+  // processed as its own top-level entry below, computing its own "natural"
+  // parent from its own structure. If that happened before its collision was
+  // known, it would lock in the wrong parent (its natural one, not its own
+  // "(group)" stand-in) and a later guard (`if (!parentOf.has(...))`) would
+  // then refuse to correct it — leaving a correctly-created "<code> (group)"
+  // node with the real code itself missing from underneath it.
+  const takenAsAncestor = new Set();
   for (const code of realCodes) {
-    const chain = guessAncestorCodes(code, convention, shorterLengths, hyphenRangesByDigits);
-    const nearestFirst = convention === 'dots' ? chain : [...chain].reverse();
-    let child = code;
-    for (const ancestor of nearestFirst) {
-      if (!parentOf.has(child)) parentOf.set(child, ancestor);
-      if (!codes.has(ancestor)) missing.add(ancestor);
-      child = ancestor;
+    for (const ancestor of wholeSegmentAncestorChain(code, ctx)) {
+      if (codes.has(ancestor)) takenAsAncestor.add(ancestor);
     }
   }
-  if (!missing.size) return rows;
+
+  // Every code string currently in use — used to disambiguate a "(group)"
+  // candidate that itself happens to already be taken.
+  const used = new Set(realCodes);
+  const groupCodeOf = new Map(); // real (colliding) code -> its synthesized "<code> (group)" stand-in
+  for (const realCode of takenAsAncestor) {
+    const g = disambiguateGroupCode(realCode, used);
+    used.add(g);
+    groupCodeOf.set(realCode, g);
+  }
+
+  // Pass 2: assign every code's (and every synthesized placeholder's) parent,
+  // now that every collision is already known. Every colliding real code's
+  // parent is seeded as its own group node *before* the main walk runs, so
+  // that walk (which would otherwise derive that code's "natural" parent from
+  // its own structure) can't pre-empt it — see the note on pass 1 above.
+  const parentOf = new Map();
+  for (const [realCode, groupCode] of groupCodeOf) {
+    parentOf.set(realCode, groupCode);
+  }
+  const missing = new Set();
+  for (const code of realCodes) {
+    let child = code;
+    for (const ancestor of wholeSegmentAncestorChain(code, ctx)) {
+      const effectiveParent = groupCodeOf.get(ancestor) ?? ancestor;
+      if (!codes.has(ancestor)) missing.add(ancestor);
+      if (!parentOf.has(child)) parentOf.set(child, effectiveParent);
+      child = effectiveParent;
+    }
+  }
+  if (!missing.size && !groupCodeOf.size) return rows;
 
   const rowByCode = new Map(rows.map((r) => [(r[codeCol] ?? '').trim(), r]));
   for (const code of missing) rowByCode.set(code, { [codeCol]: code, [titleCol]: '' });
+  for (const code of groupCodeOf.values()) rowByCode.set(code, { [codeCol]: code, [titleCol]: '' });
 
-  const allCodes = [...realCodes, ...missing];
+  const allCodes = [...realCodes, ...missing, ...groupCodeOf.values()];
   const childrenOf = new Map();
   for (const code of allCodes) {
     const parent = parentOf.get(code);
@@ -436,22 +585,38 @@ export function synthesizeMissingParents(rows, colMap) {
   for (const children of childrenOf.values()) children.sort(byCodeNatural);
   const roots = allCodes.filter((code) => parentOf.get(code) === undefined).sort(byCodeNatural);
 
+  // Stamp each output row with its true (depth-first-derived) 1-based level.
+  // buildAutoHierarchy uses this directly rather than re-deriving levels from
+  // each code's own string shape (see SYNTH_LEVEL_COL) — that shape-based
+  // system has no way to place a synthesized "<code> (group)" placeholder,
+  // whose string doesn't fit the dataset's normal dot/length shape at all.
   const out = [];
   const seen = new Set();
-  const visit = (code) => {
+  const visit = (code, depth) => {
     if (seen.has(code)) return;
     seen.add(code);
-    out.push(rowByCode.get(code));
-    for (const child of childrenOf.get(code) ?? []) visit(child);
+    out.push({ ...rowByCode.get(code), [SYNTH_LEVEL_COL]: String(depth + 1) });
+    for (const child of childrenOf.get(code) ?? []) visit(child, depth + 1);
   };
-  roots.forEach(visit);
+  roots.forEach((code) => visit(code, 0));
   return out;
 }
 
 /**
- * Build a hierarchy without an explicit level column: levels are inferred
- * from code structure alone (see assignAutoLevels). Optionally synthesizes
- * missing ancestor codes first (see synthesizeMissingParents).
+ * Build a hierarchy without an explicit level column: each code's parent is
+ * the *nearest* ancestor code that actually exists in the dataset, found by
+ * progressively shortening the code — see guessAncestorCodes for the exact
+ * candidate order. A code with no existing ancestor becomes a root (unless
+ * `synthesizeParents` fills every gap first — see synthesizeMissingParents,
+ * after which every candidate's nearest rung is guaranteed to exist).
+ *
+ * This looks parents up directly by code rather than by document position
+ * (contrast buildHierarchy's "nearest *preceding* row with a smaller level"),
+ * so unlike the explicit-level path it isn't sensitive to file order, and it
+ * correctly distinguishes same-depth siblings whose trailing segment varies
+ * in width (e.g. "13.1" and "13.20" both nesting under "13") from a genuinely
+ * deeper level that happens to share a dot-count (e.g. NACE's "01.11" class
+ * nesting under its "01.1" group, not under "01").
  *
  * @param {Record<string,string>[]} rows
  * @param {{ code: string, title: string, description?: string|null }} colMap  no `level` needed
@@ -460,11 +625,82 @@ export function synthesizeMissingParents(rows, colMap) {
  */
 export function buildAutoHierarchy(rows, colMap, { synthesizeParents = false } = {}) {
   const workingRows = synthesizeParents ? synthesizeMissingParents(rows, colMap) : rows;
+
+  // If synthesis actually added or regrouped anything, workingRows is a new
+  // array whose rows are already stamped with their true depth-first level
+  // (see synthesizeMissingParents) — build directly from that rather than
+  // re-deriving levels from each code's own string shape, which has no
+  // sensible answer for a synthesized "<code> (group)" placeholder code.
+  if (workingRows !== rows) {
+    return buildHierarchy(workingRows, { ...colMap, level: SYNTH_LEVEL_COL });
+  }
+
   const AUTO_LEVEL_COL = '__autoLevel__';
   const levels = assignAutoLevels(workingRows, colMap.code);
   const rowsWithLevel = workingRows.map((r, i) => ({
     ...r,
     [AUTO_LEVEL_COL]: levels[i] == null ? '' : String(levels[i]),
   }));
-  return buildHierarchy(rowsWithLevel, { ...colMap, level: AUTO_LEVEL_COL });
+  const tree = buildHierarchy(rowsWithLevel, { ...colMap, level: AUTO_LEVEL_COL });
+  reparentDottedCodes(tree);
+  return tree;
+}
+
+/**
+ * Correct the parent of every dotted code to the nearest ancestor that
+ * actually exists in the dataset (see guessAncestorCodes), overriding
+ * whatever assignAutoLevels + buildHierarchy's rank-and-document-order
+ * approach produced for it.
+ *
+ * That rank-based approach is a good default for dot-less codes (rank ties
+ * there have no literal string relationship to fall back on — e.g. NACE's
+ * single-letter sections vs its 2-digit divisions — so document order is the
+ * only signal available), but once a code has a dot, its own structure is a
+ * strictly more reliable signal than rank-and-position: two codes can share a
+ * dot-count yet sit at different depths (NACE's "01.11" class nests under
+ * its "01.1" group, not as a sibling of it), while others share a dot-count
+ * and *do* belong at the same depth despite a wider trailing segment (e.g.
+ * "13.1" and "13.20" are both direct children of "13"). Re-deriving each
+ * dotted code's parent from its own nearest existing prefix resolves both
+ * cases correctly without guessing at dataset-wide intent.
+ *
+ * Mutates `tree` in place (childrenOf/roots/node.parent/node.depth/node.level).
+ *
+ * @param {object} tree  result of buildHierarchy
+ */
+function reparentDottedCodes(tree) {
+  const ctx = ancestorContext(tree.nodes.map((n) => n.code));
+  let changed = false;
+
+  for (const node of tree.nodes) {
+    if (!node.code.includes('.')) continue;
+    const chain = nearestAncestorChain(node.code, ctx);
+    const newParent = chain.find((c) => tree.byCode.has(c)) ?? null;
+    if (newParent === node.parent) continue;
+
+    changed = true;
+    if (node.parent === null) {
+      tree.roots.splice(tree.roots.indexOf(node), 1);
+    } else {
+      const oldSiblings = tree.childrenOf.get(node.parent);
+      oldSiblings.splice(oldSiblings.indexOf(node), 1);
+    }
+    node.parent = newParent;
+    if (newParent === null) {
+      tree.roots.push(node);
+    } else {
+      if (!tree.childrenOf.has(newParent)) tree.childrenOf.set(newParent, []);
+      tree.childrenOf.get(newParent).push(node);
+    }
+  }
+
+  if (!changed) return;
+  // Re-derive depth/level from the (possibly changed) parent chain — a
+  // reparented node, and everything nested under it, may sit at a new depth.
+  const visit = (node, depth) => {
+    node.depth = depth;
+    node.level = depth + 1;
+    for (const child of tree.childrenOf.get(node.code) ?? []) visit(child, depth + 1);
+  };
+  tree.roots.forEach((node) => visit(node, 0));
 }

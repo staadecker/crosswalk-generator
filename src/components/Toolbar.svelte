@@ -106,7 +106,7 @@
     <span class="logo" aria-hidden="true">⇄</span>
     <div>
       <div class="name">Crosswalk Generator</div>
-      <div class="sub">Map two hierarchical classifications — all in your browser</div>
+      <div class="sub">Create a mapping table between two hierarchical classification systems</div>
     </div>
   </div>
 

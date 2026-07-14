@@ -50,9 +50,14 @@
   }
 
   // Sample datasets skip the column-mapping step entirely: columns are guessed
-  // and the hierarchy is auto-built (level auto-detected from code structure,
-  // with missing parent codes synthesized) in one click, so trying out the app
-  // never requires the user to understand CSV column semantics up front.
+  // and the hierarchy is auto-built (level auto-detected from code structure)
+  // in one click, so trying out the app never requires the user to understand
+  // CSV column semantics up front. The bundled samples already have an
+  // explicit row for every ancestor level, so they use "parent codes already
+  // included" (autoParents: false) rather than auto-generate/synthesis —
+  // turning synthesis on here would incorrectly treat every real sector/
+  // division/group code as if it collided with itself and wrap it in a
+  // spurious "<code> (group)" node.
   async function loadSample(sample) {
     error = '';
     loading = true;
@@ -72,7 +77,7 @@
         title: guess.title,
         description: guess.description,
         autoLevel: true,
-        autoParents: true,
+        autoParents: false,
       };
       system = makeSystem(sample.label, rows, colMap);
       onClear?.();

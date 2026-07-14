@@ -83,8 +83,7 @@ export function newMappingId() {
  */
 export function defaultGroupName(system, leafCodes) {
   const displayCodes = system ? compactCodes(system.tree, leafCodes) : [...leafCodes];
-  if (displayCodes.length <= 3) return displayCodes.join(';');
-  return `${displayCodes.slice(0, 2).join(';')};+${displayCodes.length - 2} more`;
+  return displayCodes.join(';');
 }
 
 /**
@@ -208,6 +207,7 @@ export function addGroup(aLeafCodes, bLeafCodes, name, note = '') {
       aLeafCodes: aCodes,
       bLeafCodes: bCodes,
       note,
+      approx: false, // equal by default — see toggleApprox
     };
     return [...next, group];
   });
@@ -215,40 +215,51 @@ export function addGroup(aLeafCodes, bLeafCodes, name, note = '') {
 }
 
 /**
- * Flag leaf codes on one side as having no counterpart, as a single new group.
- * Skips codes that already belong to any existing group (real or no-match).
+ * Flag leaf codes on one side as having no counterpart. Each code becomes its
+ * *own* one-sided group (not bundled into a single multi-code group) — codes
+ * marked no-match in the same click aren't actually related to each other,
+ * unlike a real many-to-many mapping, so each gets its own row. Skips codes
+ * that already belong to any existing group (real or no-match).
  * @param {'A'|'B'} side
+ * @param {string} [note]  applied to every newly-created row
  * @returns {{ added: number, skipped: number }}
  */
-export function markNoMatch(side, leafCodes, name, note = '') {
+export function markNoMatch(side, leafCodes, note = '') {
   let added = 0;
   let skipped = 0;
   mappings.update(($m) => {
-    const eligible = [];
+    let next = $m;
     for (const code of leafCodes) {
-      const already = $m.some((g) => g.aLeafCodes.includes(code) || g.bLeafCodes.includes(code));
+      const already = next.some((g) => g.aLeafCodes.includes(code) || g.bLeafCodes.includes(code));
       if (already) {
         skipped++;
         continue;
       }
-      eligible.push(code);
       added++;
+      next = [
+        ...next,
+        {
+          id: newMappingId(),
+          name: code,
+          aLeafCodes: side === 'A' ? [code] : [],
+          bLeafCodes: side === 'B' ? [code] : [],
+          note,
+          approx: false,
+        },
+      ];
     }
-    if (!eligible.length) return $m;
-    const group = {
-      id: newMappingId(),
-      name: name ?? (eligible.length === 1 ? eligible[0] : `${eligible.length} codes`),
-      aLeafCodes: side === 'A' ? eligible : [],
-      bLeafCodes: side === 'B' ? eligible : [],
-      note,
-    };
-    return [...$m, group];
+    return next;
   });
   return { added, skipped };
 }
 
 export function renameGroup(id, name) {
   mappings.update(($m) => $m.map((g) => (g.id === id ? { ...g, name } : g)));
+}
+
+/** Toggle a group between "equal" (the default) and "approximately equal". */
+export function toggleApprox(id) {
+  mappings.update(($m) => $m.map((g) => (g.id === id ? { ...g, approx: !g.approx } : g)));
 }
 
 export function updateGroupNote(id, note) {

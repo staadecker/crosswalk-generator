@@ -1,17 +1,16 @@
 <script>
   import {
-    renameGroup,
     updateGroupNote,
     removeMapping,
     removeCodesFromGroup,
     addCodesToGroup,
     moveCodesToGroup,
     isNoMatch,
+    toggleApprox,
     hoverA,
     hoverB,
   } from '../lib/stores.js';
   import { compactCodes, expandToLeaves } from '../lib/hierarchy.js';
-  import editIcon from '@material-design-icons/svg/filled/edit.svg?raw';
   import noteIcon from '@material-design-icons/svg/filled/sticky_note_2.svg?raw';
 
   let {
@@ -34,21 +33,11 @@
     setTimeout(() => (flash = ''), 2600);
   }
 
-  // With hundreds of rows expected, the name and note fields stay static text
-  // (not always-editable inputs) until explicitly opened for editing — keeps
-  // each row to a single compact line in the common case.
-  let editingName = $state(new Set());
+  // With hundreds of rows expected, the note field stays static text (not an
+  // always-editable input) until explicitly opened for editing — keeps each
+  // row to a single compact line in the common case.
   let editingNote = $state(new Set());
 
-  function startEditName(id) {
-    editingName = new Set(editingName).add(id);
-  }
-  function stopEditName(id, value) {
-    if (value !== undefined && value.trim()) renameGroup(id, value.trim());
-    const next = new Set(editingName);
-    next.delete(id);
-    editingName = next;
-  }
   function startEditNote(id) {
     editingNote = new Set(editingNote).add(id);
   }
@@ -107,7 +96,7 @@
       const node = byCode.get(code);
       return {
         code,
-        tooltip: node?.description || node?.title || '',
+        tooltip: node?.title || '',
         leaves: system ? [...expandToLeaves(system.tree, [code])] : [code],
       };
     });
@@ -198,41 +187,102 @@
       {#each visible as m (m.id)}
         <div class="row" class:nomatch={m.noMatch} class:highlighted={highlightedIds.has(m.id)}>
           <div class="row-head">
-            <div class="name-wrap">
-              {#if editingName.has(m.id)}
-                <input
-                  class="name-input"
-                  value={m.name}
-                  aria-label="Mapping name"
-                  use:autofocus
-                  onblur={(e) => stopEditName(m.id, e.target.value)}
-                  onkeydown={(e) => {
-                    if (e.key === 'Enter') e.target.blur();
-                    else if (e.key === 'Escape') stopEditName(m.id);
-                  }}
-                />
-              {:else}
-                <span class="name-label" title={m.name}>{m.name}</span>
-                <button
-                  class="icon-btn"
-                  title="Rename"
-                  aria-label="Rename {m.name}"
-                  onclick={() => startEditName(m.id)}
-                >
-                  {@html editIcon}
-                </button>
-              {/if}
+            <div class="pair">
+              <div
+                class="side"
+                class:drag-over={dragOverKey === `${m.id}:A`}
+                role="group"
+                aria-label="{labelA} codes for {m.name}"
+                ondragover={(e) => allowDrop(e, `${m.id}:A`)}
+                ondragleave={() => (dragOverKey = null)}
+                ondrop={(e) => handleDrop(e, m.id, 'A')}
+              >
+                {#if m.aBubbles.length}
+                  {#each m.aBubbles as b (b.code)}
+                    <span
+                      class="bubble"
+                      role="listitem"
+                      draggable="true"
+                      use:fastTooltip={() => b.tooltip}
+                      ondragstart={(e) => {
+                        e.dataTransfer.setData('text/plain', b.code);
+                        e.dataTransfer.setData('application/x-crosswalk-side', 'A');
+                        e.dataTransfer.setData('application/x-crosswalk-group-id', m.id);
+                        e.dataTransfer.effectAllowed = 'move';
+                      }}
+                    >
+                      <span class="bubble-code">{b.code}</span>
+                      <button
+                        class="bubble-x"
+                        aria-label="Remove {b.code} from {m.name}"
+                        onclick={() => removeBubble(m.id, 'A', b)}
+                      >
+                        ✕
+                      </button>
+                    </span>
+                  {/each}
+                {:else}
+                  <span class="none">— (no match) — drop a {labelA} code here</span>
+                {/if}
+              </div>
+              <button
+                class="rel"
+                title={m.approx ? 'Approximately equal — click to mark as equal' : 'Equal — click to mark as approximately equal'}
+                aria-label="Toggle equal/approximately-equal for {m.name}"
+                onclick={() => toggleApprox(m.id)}
+              >
+                {m.approx ? '≈' : '⇄'}
+              </button>
+              <div
+                class="side"
+                class:drag-over={dragOverKey === `${m.id}:B`}
+                role="group"
+                aria-label="{labelB} codes for {m.name}"
+                ondragover={(e) => allowDrop(e, `${m.id}:B`)}
+                ondragleave={() => (dragOverKey = null)}
+                ondrop={(e) => handleDrop(e, m.id, 'B')}
+              >
+                {#if m.bBubbles.length}
+                  {#each m.bBubbles as b (b.code)}
+                    <span
+                      class="bubble"
+                      role="listitem"
+                      draggable="true"
+                      use:fastTooltip={() => b.tooltip}
+                      ondragstart={(e) => {
+                        e.dataTransfer.setData('text/plain', b.code);
+                        e.dataTransfer.setData('application/x-crosswalk-side', 'B');
+                        e.dataTransfer.setData('application/x-crosswalk-group-id', m.id);
+                        e.dataTransfer.effectAllowed = 'move';
+                      }}
+                    >
+                      <span class="bubble-code">{b.code}</span>
+                      <button
+                        class="bubble-x"
+                        aria-label="Remove {b.code} from {m.name}"
+                        onclick={() => removeBubble(m.id, 'B', b)}
+                      >
+                        ✕
+                      </button>
+                    </span>
+                  {/each}
+                {:else}
+                  <span class="none">— (no match) — drop a {labelB} code here</span>
+                {/if}
+              </div>
             </div>
-            <button
-              class="icon-btn note-btn"
-              class:has-note={!!m.note}
-              title={m.note || 'Add a note'}
-              aria-label={m.note ? `Edit note for ${m.name}` : `Add a note for ${m.name}`}
-              onclick={() => startEditNote(m.id)}
-            >
-              {@html noteIcon}
-            </button>
-            <button class="danger" title="Remove this whole mapping" onclick={() => removeMapping(m.id)}>✕</button>
+            <div class="row-actions">
+              <button
+                class="icon-btn note-btn"
+                class:has-note={!!m.note}
+                title={m.note || 'Add a note'}
+                aria-label={m.note ? `Edit note for ${m.name}` : `Add a note for ${m.name}`}
+                onclick={() => startEditNote(m.id)}
+              >
+                {@html noteIcon}
+              </button>
+              <button class="danger" title="Remove this whole mapping" onclick={() => removeMapping(m.id)}>✕</button>
+            </div>
           </div>
           {#if editingNote.has(m.id)}
             <input
@@ -248,83 +298,6 @@
               }}
             />
           {/if}
-          <div class="pair">
-            <div
-              class="side"
-              class:drag-over={dragOverKey === `${m.id}:A`}
-              role="group"
-              aria-label="{labelA} codes for {m.name}"
-              ondragover={(e) => allowDrop(e, `${m.id}:A`)}
-              ondragleave={() => (dragOverKey = null)}
-              ondrop={(e) => handleDrop(e, m.id, 'A')}
-            >
-              {#if m.aBubbles.length}
-                {#each m.aBubbles as b (b.code)}
-                  <span
-                    class="bubble"
-                    role="listitem"
-                    draggable="true"
-                    use:fastTooltip={() => b.tooltip}
-                    ondragstart={(e) => {
-                      e.dataTransfer.setData('text/plain', b.code);
-                      e.dataTransfer.setData('application/x-crosswalk-side', 'A');
-                      e.dataTransfer.setData('application/x-crosswalk-group-id', m.id);
-                      e.dataTransfer.effectAllowed = 'move';
-                    }}
-                  >
-                    <span class="bubble-code">{b.code}</span>
-                    <button
-                      class="bubble-x"
-                      aria-label="Remove {b.code} from {m.name}"
-                      onclick={() => removeBubble(m.id, 'A', b)}
-                    >
-                      ✕
-                    </button>
-                  </span>
-                {/each}
-              {:else}
-                <span class="none">— (no match) — drop a {labelA} code here</span>
-              {/if}
-            </div>
-            <span class="rel" aria-hidden="true">→</span>
-            <div
-              class="side"
-              class:drag-over={dragOverKey === `${m.id}:B`}
-              role="group"
-              aria-label="{labelB} codes for {m.name}"
-              ondragover={(e) => allowDrop(e, `${m.id}:B`)}
-              ondragleave={() => (dragOverKey = null)}
-              ondrop={(e) => handleDrop(e, m.id, 'B')}
-            >
-              {#if m.bBubbles.length}
-                {#each m.bBubbles as b (b.code)}
-                  <span
-                    class="bubble"
-                    role="listitem"
-                    draggable="true"
-                    use:fastTooltip={() => b.tooltip}
-                    ondragstart={(e) => {
-                      e.dataTransfer.setData('text/plain', b.code);
-                      e.dataTransfer.setData('application/x-crosswalk-side', 'B');
-                      e.dataTransfer.setData('application/x-crosswalk-group-id', m.id);
-                      e.dataTransfer.effectAllowed = 'move';
-                    }}
-                  >
-                    <span class="bubble-code">{b.code}</span>
-                    <button
-                      class="bubble-x"
-                      aria-label="Remove {b.code} from {m.name}"
-                      onclick={() => removeBubble(m.id, 'B', b)}
-                    >
-                      ✕
-                    </button>
-                  </span>
-                {/each}
-              {:else}
-                <span class="none">— (no match) — drop a {labelB} code here</span>
-              {/if}
-            </div>
-          </div>
         </div>
       {/each}
     {/if}
@@ -405,31 +378,14 @@
   }
   .row-head {
     display: flex;
-    align-items: center;
-    gap: 4px;
+    align-items: start;
+    gap: 8px;
   }
-  .name-wrap {
-    flex: 1;
-    min-width: 0;
+  .row-actions {
+    flex: none;
     display: flex;
     align-items: center;
     gap: 2px;
-  }
-  .name-input {
-    flex: 1;
-    min-width: 0;
-    font-weight: 600;
-    font-size: 12px;
-    padding: 4px 6px;
-  }
-  .name-label {
-    min-width: 0;
-    font-weight: 600;
-    font-size: 12px;
-    padding: 4px 6px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
   }
   .icon-btn {
     flex: none;
@@ -463,6 +419,8 @@
     color: var(--accent);
   }
   .pair {
+    flex: 1;
+    min-width: 0;
     display: grid;
     grid-template-columns: 1fr auto 1fr;
     gap: 8px;
@@ -516,6 +474,15 @@
     color: var(--accent);
     font-weight: 700;
     text-align: center;
+    border: none;
+    background: none;
+    padding: 2px 4px;
+    font-size: 15px;
+    line-height: 1;
+    border-radius: var(--radius-sm);
+  }
+  .rel:hover {
+    background: var(--accent-soft);
   }
   .none {
     color: var(--text-muted);
