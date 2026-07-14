@@ -82,6 +82,11 @@ npm test              # logic tests + Playwright e2e
 
 ## Conventions
 
+- Don't use git worktrees in this repo — work directly in the main checkout.
+  This project has repeatedly ended up with stale, uncommitted worktrees
+  (abandoned mid-task, or superseded by changes later merged into `main`
+  through a different path) that then need manual reconciliation. Just
+  commit to the current branch directly instead.
 - No backend and no external network calls — everything must work fully
   offline in the browser. Don't introduce a server dependency.
 - Keep `src/lib/*.js` free of Svelte imports/DOM assumptions where possible so
