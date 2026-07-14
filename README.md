@@ -1,5 +1,7 @@
 # Crosswalk Generator
 
+[![Test](https://github.com/staadecker/crosswalk-generator/actions/workflows/test.yml/badge.svg)](https://github.com/staadecker/crosswalk-generator/actions/workflows/test.yml)
+
 This websites lets you build a mapping table (aka. a crosswalk or concordance table) between two hierarchical classification systems. All data stays on your device as processing is done locally, in your browser.
 
 I built this tool to develop a mapping between the EXIOBASEv3 and NAICS 2022 industry classification systems as part of my Master's research at MIT. It was my first project trying out Claude Code. Almost all the code was written by Claude Code.
