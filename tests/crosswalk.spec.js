@@ -79,7 +79,7 @@ test('build hierarchies, map codes as groups, persist, and export a crosswalk', 
   await page.locator('.node', { hasText: '11111' }).first().click(); // Soybean Farming (source, leaf)
   await page.locator('.node', { hasText: '01.11' }).first().click(); // target 1
   await page.locator('.node', { hasText: '01.41' }).first().click(); // target 2
-  const link = page.getByRole('button', { name: /Link 1 × 2/ });
+  const link = page.getByRole('button', { name: 'Link' });
   await expect(link).toBeEnabled();
   await link.click();
 
@@ -240,7 +240,7 @@ test('"select unmapped" compacts to the topmost code and auto-expands so the sel
   // Map just 11111 (one of 11's four leaves), leaving the rest of sector 11 unmapped.
   await panelA.locator('.node', { hasText: '11111' }).first().click();
   await page.locator('.node', { hasText: '01.11' }).first().click();
-  await page.getByRole('button', { name: /Link 1 × 1/ }).click();
+  await page.getByRole('button', { name: 'Link' }).click();
 
   // Sector 11's shape: 111 -> {1111 -> [11111 (mapped), 11112], 1112 -> [11121]},
   // 112 -> 1121 -> [11211]. Only 11112 is a lone unmapped leaf under a partially
@@ -311,7 +311,7 @@ test('unique-mapping-once toggle blocks selecting an already-mapped code outrigh
   // First group: 11111 <-> 01.11. Untouched by the toggle (still off).
   await page.locator('.node', { hasText: '11111' }).first().click();
   await page.locator('.node', { hasText: '01.11' }).first().click();
-  await page.getByRole('button', { name: /Link 1 × 1/ }).click();
+  await page.getByRole('button', { name: 'Link' }).click();
   await expect(page.locator('.list header h3 .count')).toHaveText('1');
 
   // Turn the restriction on: clicking an already-mapped code must not select it at
@@ -336,7 +336,7 @@ test('unique-mapping-once toggle blocks selecting an already-mapped code outrigh
   await page.locator('.node', { hasText: '31111' }).first().click();
   await page.locator('.node', { hasText: '10.61' }).first().click();
   await expect(page.locator('.node.selected')).toHaveCount(2);
-  await page.getByRole('button', { name: /Link 1 × 1/ }).click();
+  await page.getByRole('button', { name: 'Link' }).click();
   await expect(page.locator('.list header h3 .count')).toHaveText('2');
 
   // Dragging an already-claimed code onto a *different* group is still skipped
@@ -351,7 +351,7 @@ test('unique-mapping-once toggle blocks selecting an already-mapped code outrigh
   await expect(page.locator('.node', { hasText: '11111' }).first()).not.toHaveClass(/locked/);
   await page.locator('.node', { hasText: '11111' }).first().click();
   await page.locator('.node', { hasText: '10.91' }).first().click();
-  await page.getByRole('button', { name: /Link 1 × 1/ }).click();
+  await page.getByRole('button', { name: 'Link' }).click();
   await expect(page.locator('.list header h3 .count')).toHaveText('3');
 
   expect(errors, `browser errors:\n${errors.join('\n')}`).toEqual([]);
@@ -385,7 +385,7 @@ test('renaming a dataset is reflected in the exported crosswalk filename', async
   for (const b of await page.locator('.controls button', { hasText: 'Expand' }).all()) await b.click();
   await page.locator('.node', { hasText: '11111' }).first().click();
   await page.locator('.node', { hasText: '01.11' }).first().click();
-  await page.getByRole('button', { name: /Link 1 × 1/ }).click();
+  await page.getByRole('button', { name: 'Link' }).click();
 
   const [download] = await Promise.all([
     page.waitForEvent('download'),
@@ -408,7 +408,7 @@ test('mapping name and note stay compact static text until explicitly opened for
 
   await page.locator('.node', { hasText: '11111' }).first().click();
   await page.locator('.node', { hasText: '01.11' }).first().click();
-  await page.getByRole('button', { name: /Link 1 × 1/ }).click();
+  await page.getByRole('button', { name: 'Link' }).click();
 
   const row = page.locator('.row').first();
 
@@ -457,7 +457,7 @@ test('hovering a mapped code bubble shows a fast custom tooltip with its title',
 
   await page.locator('.node', { hasText: '11111' }).first().click();
   await page.locator('.node', { hasText: '01.11' }).first().click();
-  await page.getByRole('button', { name: /Link 1 × 1/ }).click();
+  await page.getByRole('button', { name: 'Link' }).click();
 
   // No native `title` attribute on the bubble — the custom tooltip is the only
   // affordance, and it isn't shown until hovered.
@@ -489,7 +489,7 @@ test('replacing a file deletes mappings that reference it, after confirmation', 
 
   await page.locator('.node', { hasText: '11111' }).first().click();
   await page.locator('.node', { hasText: '01.11' }).first().click();
-  await page.getByRole('button', { name: /Link 1 × 1/ }).click();
+  await page.getByRole('button', { name: 'Link' }).click();
   await expect(page.locator('.list header h3 .count')).toHaveText('1');
 
   const replaceBtn = page.locator('.panel[data-accent="A"]').getByRole('button', { name: /Replace file/ });
@@ -509,4 +509,53 @@ test('replacing a file deletes mappings that reference it, after confirmation', 
   await replaceBtn.click();
   await expect(page.locator('.list header h3 .count')).toHaveText('0');
   await expect(page.getByRole('button', { name: 'NAICS (small sample)' })).toBeVisible();
+});
+
+test('dragging a bubble in the Mappings pane onto another group moves it there', async ({ page }) => {
+  await page.goto('./');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+
+  const csvInput = page.locator('input[type=file][accept*="csv"]');
+  await csvInput.first().setInputFiles(A);
+  await page.getByRole('button', { name: 'Build hierarchy' }).click();
+  await csvInput.first().setInputFiles(B);
+  await page.getByRole('button', { name: 'Build hierarchy' }).click();
+  for (const b of await page.locator('.controls button', { hasText: 'Expand' }).all()) await b.click();
+
+  // First group: 11111 -> 01.11, 01.41 (two B-side bubbles).
+  await page.locator('.node', { hasText: '11111' }).first().click();
+  await page.locator('.node', { hasText: '01.11' }).first().click();
+  await page.locator('.node', { hasText: '01.41' }).first().click();
+  await page.getByRole('button', { name: 'Link' }).click();
+
+  // Second group: 31111 -> 10.61.
+  await page.locator('.node', { hasText: '31111' }).first().click();
+  await page.locator('.node', { hasText: '10.61' }).first().click();
+  await page.getByRole('button', { name: 'Link' }).click();
+
+  await expect(page.locator('.row')).toHaveCount(2);
+  const firstRow = page.locator('.row').nth(0);
+  const secondRow = page.locator('.row').nth(1);
+  await expect(firstRow.locator('.pair > .side').nth(1).locator('.bubble')).toHaveCount(2); // 01.11, 01.41
+  await expect(secondRow.locator('.pair > .side').nth(1).locator('.bubble')).toHaveCount(1); // 10.61
+
+  // Drag the 01.41 bubble from the first group's B side onto the second group's B side.
+  await dragAndDrop(
+    firstRow.locator('.bubble', { hasText: '01.41' }),
+    secondRow.locator('.pair > .side').nth(1),
+  );
+
+  // Moved, not copied: gone from the source group, present on the target group.
+  await expect(firstRow.locator('.pair > .side').nth(1).locator('.bubble')).toHaveCount(1);
+  await expect(firstRow.locator('.bubble', { hasText: '01.41' })).toHaveCount(0);
+  await expect(secondRow.locator('.pair > .side').nth(1).locator('.bubble')).toHaveCount(2);
+  await expect(secondRow.locator('.bubble', { hasText: '01.41' })).toHaveCount(1);
+
+  // Dropping a bubble back onto the row it already belongs to is a no-op, not a removal.
+  await dragAndDrop(
+    secondRow.locator('.bubble', { hasText: '01.41' }),
+    secondRow.locator('.pair > .side').nth(1),
+  );
+  await expect(secondRow.locator('.pair > .side').nth(1).locator('.bubble')).toHaveCount(2);
 });

@@ -35,10 +35,11 @@ refers to them as **A** and **B** (or by whatever name you give each dataset) th
   creates a single named group (not one row per pair), defaulting to a name built from the
   linked A-side leaf codes themselves (semicolon-joined, e.g. `11111;11112`) rather than
   their titles — rename it any time. Drag a code from either tree onto an existing group to
-  add it; remove a single code from a group via its bubble's "✕". Only leaf (lowest-level)
-  codes are ever stored in a mapping — parent codes are purely a navigation/selection
-  convenience, and the UI compacts a group's leaves back into a parent code for display
-  whenever every leaf under that parent is present.
+  add it; drag a code bubble from one group onto another (in the Mappings pane) to move it
+  there instead of copying it; remove a single code from a group via its bubble's "✕". Only
+  leaf (lowest-level) codes are ever stored in a mapping — parent codes are purely a
+  navigation/selection convenience, and the UI compacts a group's leaves back into a parent
+  code for display whenever every leaf under that parent is present.
 - 🖱️ **Hover-highlight** — hovering a code (leaf *or* ancestor) in either tree highlights
   every mapping group it (or any of its descendants) belongs to in the Mappings pane.
 - 🎯 **Grayed-out mapped entries** instead of a "hide mapped" toggle, plus a per-node

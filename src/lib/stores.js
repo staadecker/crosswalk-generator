@@ -285,6 +285,20 @@ export function addCodesToGroup(id, side, leafCodes) {
 }
 
 /**
+ * Move leaf codes from one group to another on the same side (e.g. dragging a
+ * mapping-pane bubble onto a different group's row). Removing from the source
+ * happens before adding to the target so the move itself is never treated as
+ * "used elsewhere" under uniqueMappingOnly. A no-op if source and target are
+ * the same group.
+ * @returns {{ skipped: string[] }}
+ */
+export function moveCodesToGroup(sourceId, targetId, side, leafCodes) {
+  if (sourceId === targetId) return { skipped: [] };
+  removeCodesFromGroup(sourceId, side, leafCodes);
+  return addCodesToGroup(targetId, side, leafCodes);
+}
+
+/**
  * Remove specific leaf codes from one side of a group (e.g. clicking a bubble's
  * ✕ — a compacted/parent bubble removes its whole underlying leaf set, a plain
  * leaf bubble removes just that one code). The whole group is dropped once it

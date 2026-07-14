@@ -34,6 +34,7 @@ import {
   updateGroupNote,
   addCodesToGroup,
   removeCodesFromGroup,
+  moveCodesToGroup,
   removeMapping,
   isNoMatch,
   mappings,
@@ -206,6 +207,29 @@ addGroup(naicsOilseedLeaves, [...expandToLeaves(sysB.tree, ['10.61'])], 'Oilseed
   const after = get(mappings).find((x) => x.id === g.id);
   check(!after.bLeafCodes.includes('01.41'), 'removing a bubble drops just that leaf code');
   check(after.bLeafCodes.length === 2, 'the group’s other codes are untouched');
+}
+
+// --- drag a bubble from one mapping-pane group onto another group (a move, not a copy) ---
+{
+  addGroup(['31121'], ['01.42'], 'Move target');
+  const source = get(mappings).find((x) => x.name === 'Soybean farming (renamed)'); // B: 01.11, 01.13
+  const target = get(mappings).find((x) => x.name === 'Move target');
+  const before = source.bLeafCodes.length;
+  const { skipped } = moveCodesToGroup(source.id, target.id, 'B', ['01.13']);
+  const sourceAfter = get(mappings).find((x) => x.id === source.id);
+  const targetAfter = get(mappings).find((x) => x.id === target.id);
+  check(skipped.length === 0, 'moving a code between groups is not skipped');
+  check(!sourceAfter.bLeafCodes.includes('01.13'), 'the moved code is removed from the source group');
+  check(sourceAfter.bLeafCodes.length === before - 1, 'the source group loses exactly the moved code');
+  check(targetAfter.bLeafCodes.includes('01.13'), 'the moved code is added to the target group');
+
+  // Dropping a bubble back onto the group it already belongs to is a harmless no-op.
+  const { skipped: selfSkipped } = moveCodesToGroup(target.id, target.id, 'B', ['01.13']);
+  const unchanged = get(mappings).find((x) => x.id === target.id);
+  check(
+    selfSkipped.length === 0 && unchanged.bLeafCodes.includes('01.13'),
+    'dropping a bubble onto its own group is a no-op, not a removal',
+  );
 }
 
 // Removing every code on both sides of a group drops the group entirely.

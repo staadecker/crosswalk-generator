@@ -130,7 +130,7 @@
       </button>
     {:else}
       <button class="primary" disabled={!canLink} onclick={link}>
-        Link {nA} × {nB}
+        Link
       </button>
     {/if}
   </div>

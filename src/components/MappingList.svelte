@@ -5,6 +5,7 @@
     removeMapping,
     removeCodesFromGroup,
     addCodesToGroup,
+    moveCodesToGroup,
     isNoMatch,
     hoverA,
     hoverB,
@@ -163,10 +164,13 @@
     dragOverKey = null;
     const code = e.dataTransfer.getData('text/plain');
     const originSide = e.dataTransfer.getData('application/x-crosswalk-side');
+    const sourceGroupId = e.dataTransfer.getData('application/x-crosswalk-group-id');
     if (!code || originSide !== side) return;
     const system = side === 'A' ? systemA : systemB;
     const leaves = system ? [...expandToLeaves(system.tree, [code])] : [code];
-    const { skipped } = addCodesToGroup(groupId, side, leaves);
+    const { skipped } = sourceGroupId
+      ? moveCodesToGroup(sourceGroupId, groupId, side, leaves)
+      : addCodesToGroup(groupId, side, leaves);
     if (skipped.length) {
       say(`${skipped.length} code${skipped.length === 1 ? '' : 's'} skipped — already mapped elsewhere.`);
     }
@@ -254,7 +258,18 @@
             >
               {#if m.aBubbles.length}
                 {#each m.aBubbles as b (b.code)}
-                  <span class="bubble" use:fastTooltip={() => b.tooltip}>
+                  <span
+                    class="bubble"
+                    role="listitem"
+                    draggable="true"
+                    use:fastTooltip={() => b.tooltip}
+                    ondragstart={(e) => {
+                      e.dataTransfer.setData('text/plain', b.code);
+                      e.dataTransfer.setData('application/x-crosswalk-side', 'A');
+                      e.dataTransfer.setData('application/x-crosswalk-group-id', m.id);
+                      e.dataTransfer.effectAllowed = 'move';
+                    }}
+                  >
                     <span class="bubble-code">{b.code}</span>
                     <button
                       class="bubble-x"
@@ -281,7 +296,18 @@
             >
               {#if m.bBubbles.length}
                 {#each m.bBubbles as b (b.code)}
-                  <span class="bubble" use:fastTooltip={() => b.tooltip}>
+                  <span
+                    class="bubble"
+                    role="listitem"
+                    draggable="true"
+                    use:fastTooltip={() => b.tooltip}
+                    ondragstart={(e) => {
+                      e.dataTransfer.setData('text/plain', b.code);
+                      e.dataTransfer.setData('application/x-crosswalk-side', 'B');
+                      e.dataTransfer.setData('application/x-crosswalk-group-id', m.id);
+                      e.dataTransfer.effectAllowed = 'move';
+                    }}
+                  >
                     <span class="bubble-code">{b.code}</span>
                     <button
                       class="bubble-x"
@@ -457,6 +483,10 @@
     border-radius: 12px;
     padding: 1px 4px 1px 8px;
     font-size: 12px;
+    cursor: grab;
+  }
+  .bubble:active {
+    cursor: grabbing;
   }
   .bubble-code {
     font-family: ui-monospace, Menlo, Consolas, monospace;
