@@ -8,12 +8,12 @@
   // and `rows` never change during its lifetime.
   // svelte-ignore state_referenced_locally
   const guess = guessColumns(fields, rows);
-  let levelMode = $state('column'); // 'column' | 'auto'
+  let levelMode = $state('auto'); // 'column' | 'auto' — auto-detect is the default
   let levelCol = $state(guess.level ?? '');
   let codeCol = $state(guess.code ?? '');
   let titleCol = $state(guess.title ?? '');
-  let descCol = $state(''); // optional long-form description, not guessed
-  let autoParents = $state(false); // auto mode only: synthesize missing ancestor codes
+  let descCol = $state(guess.description ?? ''); // optional long-form description
+  let autoParents = $state(true); // auto mode only: synthesize missing ancestor codes
 
   let canContinue = $derived(codeCol && titleCol && (levelMode === 'auto' || levelCol));
   let preview = $derived(rows.slice(0, 5));
@@ -34,8 +34,9 @@
 
 <div class="mapper">
   <p class="intro">
-    Confirm the columns in <strong>{fileName}</strong>. The <strong>level</strong> column
-    (an integer per row indicating hierarchy depth) is required.
+    Confirm the columns in <strong>{fileName}</strong>. By default the hierarchy depth is
+    auto-detected from each code's own structure; switch to specifying an explicit
+    <strong>level</strong> column (an integer per row) if auto-detect gets it wrong.
   </p>
 
   <div class="level-mode">

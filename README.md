@@ -8,34 +8,47 @@ no server, and your data never leaves your machine.
 
 ## Features
 
-- 📁 **Upload two CSVs** and confirm which columns are *level*, *code*, and *title*
-  (auto-detected, overridable), plus an optional *description* column.
-- 🌱 **Try with sample data** — one-click shortcut buttons load the bundled NAICS/NACE
-  samples so new users can explore without preparing their own files.
+- 📁 **Upload two CSVs** and confirm which columns are *code*, *title*, and optionally
+  *level* and *description* — all auto-detected (overridable), including telling a short
+  title column apart from a longer description column when a file has both.
+- 🌱 **Try with sample data** — one-click shortcut buttons on *both* sides, offering the
+  same choice of a few bundled sample datasets (small NAICS/NACE samples, plus a full
+  real-world NAICS 2022 file) so either side can load any of them. Picking one builds the
+  hierarchy immediately — no column-mapping step to click through.
+- ✏️ **Editable dataset names**, shown in each panel header and also used to name the
+  exported crosswalk files (e.g. `my-naics-to-my-nace-crosswalk-2026-07-14.zip`).
 - 🌳 **Collapsible, searchable trees**, with a bigger click target and hover state on the
   expand/collapse arrows. Hovering a node with a description shows it as a tooltip.
-- 🔢 **Level column or auto-detection** — build the hierarchy from an explicit level
-  column, or infer depth straight from each code's structure (dot-separator count or
-  code length). Auto mode can also synthesize missing parent codes (e.g. adding "01" if
-  only "01.a"/"01.b" are present).
+- 🔢 **Auto-detected level by default** — hierarchy depth is inferred straight from each
+  code's own structure (dot-separator count or code length, including NAICS-style
+  hyphenated sector-range codes like "48-49"), with missing parent codes synthesized
+  automatically (e.g. adding "01" if only "01.a"/"01.b" are present) and sorted into their
+  natural position among siblings. Switch to an explicit level column instead if
+  auto-detection gets a file wrong.
 - 🔗 **Grouped many-to-many mappings** — selecting codes on both sides and linking them
   creates a single named group (not one row per pair). Drag a code from either tree onto
   an existing group to add it; remove a single code from a group via its bubble's "✕".
   Only leaf (lowest-level) codes are ever stored in a mapping — parent codes are purely a
   navigation/selection convenience, and the UI compacts a group's leaves back into a
   parent code for display whenever every leaf under that parent is present.
-- 🖱️ **Hover-highlight** — hovering a code in either tree highlights any mapping group
-  it already belongs to in the Mappings pane.
+- 🖱️ **Hover-highlight** — hovering a code (leaf *or* ancestor) in either tree highlights
+  every mapping group it (or any of its descendants) belongs to in the Mappings pane.
 - 🎯 **Grayed-out mapped entries** instead of a "hide mapped" toggle, plus a per-node
-  "select unmapped" action to quickly grab everything still needing attention under a
-  parent.
-- 🔒 **Optional "map each code once"** constraint — when enabled, a leaf code can't be
-  added to two different mapping groups on the same side.
+  "select unmapped" action that compacts the resulting selection to the topmost
+  fully-unmapped code at each branch and auto-expands the tree so it's actually visible.
+- 🔒 **Optional "map each code once"** constraint — when enabled, a leaf code already in a
+  mapping group can't be selected for a new group on the same side at all (the tree greys
+  it out further and refuses the click, rather than silently dropping it at link time);
+  dragging one onto a *different* existing group is still rejected with a message.
+- 🧾 **Dense Mappings pane** — a group's name and note stay compact static text/an icon
+  button until explicitly opened for editing, so hundreds of rows stay scannable.
+- ⚠️ **Replacing a file is a destructive action** — it's styled like the other danger
+  buttons and, after confirmation, deletes every mapping that referenced that side (rather
+  than leaving orphaned half-mappings behind).
 - 📊 **Progress bars** above each tree showing the fraction of codes already mapped.
 - 💾 **Auto-save** to local storage; **Save/Load project** as JSON to resume or share.
-- ⬇️ **Export the crosswalk to CSV** — either as a single file with the full N×N
-  cross-product per group, or as two files (source→group-name many-to-one, and
-  group-name→target one-to-many).
+- ⬇️ **One-click export** — a single button downloads one `.zip` containing all three
+  crosswalk representations (see [Crosswalk export](#crosswalk-export) below).
 - 🌓 Light/dark theme, keyboard-navigable, responsive.
 
 ## CSV format
@@ -60,16 +73,16 @@ level,code,title
 4,11111,Soybean Farming
 ```
 
-### Auto-detected level
+### Auto-detected level (default)
 
 Skip the level column entirely and let the app infer depth from each code's own shape
-(dot-separator count, then code length). Optionally enable "automatically create missing
-parent codes" to synthesize any implied ancestor code that isn't itself present in the
-file (e.g. adding a blank-title "01" row if only "01.a" and "01.b" exist).
+(dot-separator count, then code length). "Automatically create missing parent codes" is on
+by default, synthesizing any implied ancestor code that isn't itself present in the file
+(e.g. adding a blank-title "01" row if only "01.a" and "01.b" exist).
 
 Sample files are in [`samples/`](samples/) (used by the test suite) and
 [`public/samples/`](public/samples/) (served to the in-app "Try with sample data"
-buttons).
+buttons) — kept in sync as identical copies.
 
 ## Develop
 
@@ -106,19 +119,24 @@ For a user/organization site or a custom domain served at the root, build with
 
 ## Crosswalk export
 
-**Single-file mode** (one CSV, full N×N cross-product — one row per source-leaf ×
-target-leaf pair within each group):
+A single "Export crosswalk (.zip)" button downloads one zip archive containing all three
+representations of the current mappings:
 
-`source_code, source_title, target_code, target_title, group_name, note`
-
-**Split mode** (two CSVs):
-
-- Source → group name (many-to-one): `source_code, source_title, group_name`
-- Group name → target (one-to-many): `group_name, target_code, target_title`
+- `crosswalk.csv` — full N×N cross-product, one row per source-leaf × target-leaf pair
+  within each group:
+  `source_code, source_title, target_code, target_title, group_name, note`
+- `source-to-name.csv` — source → group name (many-to-one):
+  `source_code, source_title, group_name`
+- `name-to-target.csv` — group name → target (one-to-many):
+  `group_name, target_code, target_title`
 
 A group with no counterpart on one side (a "no match" flag) contributes rows with the
-other side's fields left blank in single-file mode, and simply doesn't appear in the file
-for its missing side in split mode.
+other side's fields left blank in `crosswalk.csv`, and simply doesn't appear in
+`source-to-name.csv`/`name-to-target.csv` for its missing side.
+
+The zip itself is written by a small dependency-free archiver
+([`src/lib/zip.js`](src/lib/zip.js), uncompressed/STORE method — plenty for a handful of
+CSV files) rather than pulling in an external zip library.
 
 ## Tech
 

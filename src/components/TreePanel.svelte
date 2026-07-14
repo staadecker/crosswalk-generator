@@ -1,15 +1,17 @@
 <script>
-  import { flattenTree, expandToLeaves, leafCodesOf } from '../lib/hierarchy.js';
+  import { flattenTree, expandToLeaves, leafCodesOf, compactCodes } from '../lib/hierarchy.js';
 
   let {
     system, // { name, tree, colMap, rows }
     selected = new Set(), // Set of selected codes on this side
     counts = new Map(), // code -> mapping count for this side
     noMatchCodes = new Set(), // codes flagged no-match on this side
+    uniqueMappingOnly = false, // when true, an already-mapped code can't be selected for a new mapping
     accent = 'A', // 'A' | 'B' for subtle color differentiation
     onToggle,
     onClear,
     onChange,
+    onRename, // called with a new dataset name (used in export filenames)
     onHover, // called with the hovered code, or null on leave — drives Mappings-pane highlight
     onSelectUnmapped, // called with an array of not-yet-mapped leaf codes under a node
   } = $props();
@@ -65,18 +67,34 @@
     allExpanded = false;
   }
 
-  function select(code) {
+  function select(code, locked) {
+    if (locked) return; // already mapped elsewhere and uniqueMappingOnly is on — refuse the click outright
     onToggle?.(code); // click toggles membership in the selection set
   }
 
   // Selects every not-yet-mapped leaf descendant of `code` (leaves the rest of
-  // the current selection untouched).
+  // the current selection untouched). The resulting selection is compacted back
+  // up to the highest ancestor(s) whose full leaf set is being selected (same
+  // rule as a mapping group's display bubbles), and every ancestor of those
+  // codes is auto-expanded — otherwise a collapsed subtree would hide the newly
+  // selected leaves entirely, making the button look like it did nothing.
   function selectUnmapped(code) {
     if (!system) return;
     const leaves = [...expandToLeaves(system.tree, [code])].filter(
       (c) => (counts.get(c) ?? 0) === 0 && !noMatchCodes.has(c),
     );
-    if (leaves.length) onSelectUnmapped?.(leaves);
+    if (!leaves.length) return;
+    const compact = compactCodes(system.tree, new Set(leaves));
+    const nextExpanded = new Set(expanded);
+    for (const c of compact) {
+      let parent = system.tree.byCode.get(c)?.parent;
+      while (parent) {
+        nextExpanded.add(parent);
+        parent = system.tree.byCode.get(parent)?.parent;
+      }
+    }
+    expanded = nextExpanded;
+    onSelectUnmapped?.(compact);
   }
 
   function highlight(text) {
@@ -101,9 +119,19 @@
 <div class="panel" data-accent={accent}>
   <header>
     <div class="titlerow">
-      <h2 title={system.name}>{system.name}</h2>
-      <button class="ghost small" onclick={() => onChange?.()} title="Replace this file">
-        Change file
+      <input
+        class="name-input"
+        value={system.name}
+        title="Dataset name — also used in exported filenames"
+        aria-label="Dataset name"
+        onchange={(e) => onRename?.(e.target.value.trim() || system.name)}
+      />
+      <button
+        class="danger small"
+        onclick={() => onChange?.()}
+        title="Replace this file — deletes any mappings that reference it"
+      >
+        Replace file…
       </button>
     </div>
     <div class="controls">
@@ -159,18 +187,23 @@
       {@const isSelected = selected.has(node.code)}
       {@const isNoMatch = noMatchCodes.has(node.code)}
       {@const isMapped = count > 0 || isNoMatch}
+      {@const isLocked = uniqueMappingOnly && isMapped && !isSelected}
       <div
         class="node"
         class:selected={isSelected}
         class:mapped={isMapped}
+        class:locked={isLocked}
         role="treeitem"
         aria-selected={isSelected}
+        aria-disabled={isLocked}
         tabindex="0"
         draggable="true"
-        title={node.description || undefined}
+        title={isLocked
+          ? 'Already part of another mapping — turn off “Only allow each code to be mapped once” to reuse it here'
+          : node.description || undefined}
         style="padding-left: {node.depth * 16 + 8}px"
-        onclick={() => select(node.code)}
-        onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), select(node.code))}
+        onclick={() => select(node.code, isLocked)}
+        onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), select(node.code, isLocked))}
         ondragstart={(e) => {
           e.dataTransfer.setData('text/plain', node.code);
           e.dataTransfer.setData('application/x-crosswalk-side', accent);
@@ -240,13 +273,20 @@
     justify-content: space-between;
     gap: 8px;
   }
-  h2 {
+  .name-input {
+    flex: 1;
+    min-width: 0;
     margin: 0;
     font-size: 14px;
     font-weight: 700;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    padding: 3px 6px;
+    background: transparent;
+    border-color: transparent;
+  }
+  .name-input:hover,
+  .name-input:focus {
+    background: var(--surface);
+    border-color: var(--border);
   }
   .controls {
     display: flex;
@@ -353,6 +393,12 @@
   .node.mapped .code,
   .node.mapped .desc {
     opacity: 0.55;
+  }
+  .node.locked {
+    cursor: not-allowed;
+  }
+  .node.locked:hover {
+    background: none;
   }
   .twist {
     border: none;

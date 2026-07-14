@@ -299,6 +299,26 @@ export function removeMapping(id) {
   mappings.update(($m) => $m.filter((m) => m.id !== id));
 }
 
+/**
+ * Delete every mapping group that touches the given side at all (not just
+ * strip that side's codes) — used when a system's file is replaced, since a
+ * group's codes for that side become meaningless once the underlying file
+ * (and therefore its codes/tree) is gone. Leaves groups untouched that only
+ * ever had codes on the *other* side.
+ * @param {'source'|'target'} side
+ * @returns {number} how many groups were deleted
+ */
+export function clearMappingsForSide(side) {
+  const key = side === 'source' ? 'sourceLeafCodes' : 'targetLeafCodes';
+  let removed = 0;
+  mappings.update(($m) => {
+    const next = $m.filter((g) => g[key].length === 0);
+    removed = $m.length - next.length;
+    return next;
+  });
+  return removed;
+}
+
 export function clearAll() {
   systemA.set(null);
   systemB.set(null);

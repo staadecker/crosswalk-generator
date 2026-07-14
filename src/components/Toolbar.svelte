@@ -16,20 +16,43 @@
     buildNameToTargetRows,
     nameToTargetCsv,
     downloadFile,
+    downloadBlob,
     readFileText,
   } from '../lib/crosswalk.js';
+  import { buildZip } from '../lib/zip.js';
 
   let { mappingCount = 0 } = $props();
 
   let importEl;
   let message = $state('');
-  let exportMode = $state('single'); // 'single' (N×N in one file) | 'split' (many-to-one + one-to-many)
 
   function stamp() {
     return new Date().toISOString().slice(0, 10);
   }
 
-  async function exportCsv() {
+  /** Turn a dataset name into a filesystem/URL-safe slug for filenames. */
+  function slug(name) {
+    return (name ?? '')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+  }
+
+  /** "<source>-to-<target>" (or a generic fallback) for export filenames. */
+  function pairSlug(a, b) {
+    const sa = slug(a?.name);
+    const sb = slug(b?.name);
+    if (!sa && !sb) return 'crosswalk';
+    return `${sa || 'source'}-to-${sb || 'target'}`;
+  }
+
+  // One export button, one download: a zip bundling all three crosswalk
+  // representations (the N×N cross-product, plus the two normalized
+  // source→name / name→target files) — no format dropdown to choose between,
+  // and no browser multiple-automatic-download blocking to work around since
+  // it's a single file.
+  function exportCsv() {
     const groups = get(mappings);
     if (!groups.length) {
       flash('Nothing to export yet.');
@@ -37,22 +60,19 @@
     }
     const a = get(systemA);
     const b = get(systemB);
-    if (exportMode === 'single') {
-      const rows = buildCrosswalkRows(groups, a, b);
-      downloadFile(`crosswalk-${stamp()}.csv`, crosswalkToCsv(rows), 'text/csv');
-    } else {
-      const sourceRows = buildSourceToNameRows(groups, a);
-      const targetRows = buildNameToTargetRows(groups, b);
-      downloadFile(`crosswalk-source-to-name-${stamp()}.csv`, sourceToNameCsv(sourceRows), 'text/csv');
-      // Two downloads triggered back-to-back in the same tick can be coalesced by the
-      // browser into a single download event; a tick's gap keeps them distinct.
-      await new Promise((resolve) => setTimeout(resolve, 50));
-      downloadFile(`crosswalk-name-to-target-${stamp()}.csv`, nameToTargetCsv(targetRows), 'text/csv');
-    }
+    const pair = pairSlug(a, b);
+    const crosswalkCsv = crosswalkToCsv(buildCrosswalkRows(groups, a, b));
+    const zip = buildZip([
+      { name: 'crosswalk.csv', content: crosswalkCsv },
+      { name: 'source-to-name.csv', content: sourceToNameCsv(buildSourceToNameRows(groups, a)) },
+      { name: 'name-to-target.csv', content: nameToTargetCsv(buildNameToTargetRows(groups, b)) },
+    ]);
+    downloadBlob(`${pair}-crosswalk-${stamp()}.zip`, zip);
   }
 
   function saveProject() {
-    downloadFile(`crosswalk-project-${stamp()}.json`, exportProject(), 'application/json');
+    const pair = pairSlug(get(systemA), get(systemB));
+    downloadFile(`${pair}-project-${stamp()}.json`, exportProject(), 'application/json');
   }
 
   async function onImport(e) {
@@ -92,16 +112,12 @@
 
   <div class="actions">
     {#if message}<span class="msg" aria-live="polite">{message}</span>{/if}
-    <select
-      bind:value={exportMode}
-      aria-label="Export format"
-      title="Single file: full N×N cross-product per mapping. Two files: source→name and name→target."
+    <button
+      onclick={exportCsv}
+      disabled={mappingCount === 0}
+      title="Download a .zip with the full crosswalk (N×N), plus source→name and name→target CSVs"
     >
-      <option value="single">Export: one CSV (N×N)</option>
-      <option value="split">Export: two CSVs (source→name, name→target)</option>
-    </select>
-    <button onclick={exportCsv} disabled={mappingCount === 0} title="Download the crosswalk as CSV">
-      Export CSV
+      Export crosswalk (.zip)
     </button>
     <button onclick={saveProject} title="Save systems + mappings as a reloadable JSON file">
       Save project

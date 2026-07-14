@@ -15,7 +15,17 @@
     addToSelection,
     hoverA,
     hoverB,
+    uniqueMappingOnly,
   } from './lib/stores.js';
+
+  // Offered as one-click "try sample data" shortcuts on both sides — either side can
+  // load any of them, so a user can freely mix and match which classification acts
+  // as source vs. target.
+  const SAMPLE_DATASETS = [
+    { file: 'naics-sample.csv', label: 'NAICS (small sample)' },
+    { file: 'nace-sample.csv', label: 'NACE (small sample)' },
+    { file: '2022_NAICS_Descriptions.csv', label: 'NAICS 2022 (full, with descriptions)' },
+  ];
 
   function linked() {
     // Per the UX decision, clear both selections after creating links / no-match.
@@ -32,11 +42,12 @@
       <SystemPanel
         title="System A (source)"
         accent="A"
-        sampleFile="naics-sample.csv"
+        samples={SAMPLE_DATASETS}
         bind:system={$systemA}
         selected={$selectionA}
         counts={$mappingCounts.source}
         noMatchCodes={$mappingCounts.noMatchSource}
+        uniqueMappingOnly={$uniqueMappingOnly}
         onToggle={(code) => toggleSelection(selectionA, code)}
         onClear={() => clearSelection(selectionA)}
         onHover={(code) => hoverA.set(code)}
@@ -69,11 +80,12 @@
       <SystemPanel
         title="System B (target)"
         accent="B"
-        sampleFile="nace-sample.csv"
+        samples={SAMPLE_DATASETS}
         bind:system={$systemB}
         selected={$selectionB}
         counts={$mappingCounts.target}
         noMatchCodes={$mappingCounts.noMatchTarget}
+        uniqueMappingOnly={$uniqueMappingOnly}
         onToggle={(code) => toggleSelection(selectionB, code)}
         onClear={() => clearSelection(selectionB)}
         onHover={(code) => hoverB.set(code)}

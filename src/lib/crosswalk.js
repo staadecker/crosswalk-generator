@@ -111,9 +111,13 @@ export function nameToTargetCsv(rows) {
   return Papa.unparse(rows, { columns: ['group_name', 'target_code', 'target_title'] });
 }
 
-/** Trigger a browser download of `content` as `filename`. */
+/** Trigger a browser download of `content` (text) as `filename`. */
 export function downloadFile(filename, content, mime = 'text/plain') {
-  const blob = new Blob([content], { type: `${mime};charset=utf-8` });
+  downloadBlob(filename, new Blob([content], { type: `${mime};charset=utf-8` }));
+}
+
+/** Trigger a browser download of a pre-built `blob` (e.g. a zip archive) as `filename`. */
+export function downloadBlob(filename, blob) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;

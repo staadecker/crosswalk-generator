@@ -28,6 +28,37 @@
     setTimeout(() => (flash = ''), 2600);
   }
 
+  // With hundreds of rows expected, the name and note fields stay static text
+  // (not always-editable inputs) until explicitly opened for editing — keeps
+  // each row to a single compact line in the common case.
+  let editingName = $state(new Set());
+  let editingNote = $state(new Set());
+
+  function startEditName(id) {
+    editingName = new Set(editingName).add(id);
+  }
+  function stopEditName(id, value) {
+    if (value !== undefined && value.trim()) renameGroup(id, value.trim());
+    const next = new Set(editingName);
+    next.delete(id);
+    editingName = next;
+  }
+  function startEditNote(id) {
+    editingNote = new Set(editingNote).add(id);
+  }
+  function stopEditNote(id, value) {
+    if (value !== undefined) updateGroupNote(id, value.trim());
+    const next = new Set(editingNote);
+    next.delete(id);
+    editingNote = next;
+  }
+
+  /** Focus (and select the text of) an input as soon as it mounts. */
+  function autofocus(node) {
+    node.focus();
+    node.select?.();
+  }
+
   let aByCode = $derived(systemA?.tree.byCode ?? new Map());
   let bByCode = $derived(systemB?.tree.byCode ?? new Map());
 
@@ -68,16 +99,20 @@
   let hasSelection = $derived(selectionA.size > 0 || selectionB.size > 0);
 
   // A group is highlighted while the code currently hovered in either tree panel
-  // belongs to it.
+  // belongs to it. The hovered code may be an ancestor (e.g. hovering a parent that
+  // shows an aggregated mapping badge) rather than a leaf, so it's expanded to its
+  // leaf descendants before checking for overlap with a group's (leaf-only) codes.
   let highlightedIds = $derived.by(() => {
     const hA = $hoverA;
     const hB = $hoverB;
     const ids = new Set();
     if (!hA && !hB) return ids;
+    const aLeaves = hA && systemA ? expandToLeaves(systemA.tree, [hA]) : null;
+    const bLeaves = hB && systemB ? expandToLeaves(systemB.tree, [hB]) : null;
     for (const g of mappings) {
-      if ((hA && g.sourceLeafCodes.includes(hA)) || (hB && g.targetLeafCodes.includes(hB))) {
-        ids.add(g.id);
-      }
+      const touchesA = aLeaves && g.sourceLeafCodes.some((c) => aLeaves.has(c));
+      const touchesB = bLeaves && g.targetLeafCodes.some((c) => bLeaves.has(c));
+      if (touchesA || touchesB) ids.add(g.id);
     }
     return ids;
   });
@@ -128,14 +163,54 @@
       {#each visible as m (m.id)}
         <div class="row" class:nomatch={m.noMatch} class:highlighted={highlightedIds.has(m.id)}>
           <div class="row-head">
-            <input
-              class="name-input"
-              value={m.name}
-              aria-label="Mapping name"
-              onchange={(e) => renameGroup(m.id, e.target.value)}
-            />
+            {#if editingName.has(m.id)}
+              <input
+                class="name-input"
+                value={m.name}
+                aria-label="Mapping name"
+                use:autofocus
+                onblur={(e) => stopEditName(m.id, e.target.value)}
+                onkeydown={(e) => {
+                  if (e.key === 'Enter') e.target.blur();
+                  else if (e.key === 'Escape') stopEditName(m.id);
+                }}
+              />
+            {:else}
+              <span class="name-label" title={m.name}>{m.name}</span>
+              <button
+                class="icon-btn"
+                title="Rename"
+                aria-label="Rename {m.name}"
+                onclick={() => startEditName(m.id)}
+              >
+                ✎
+              </button>
+            {/if}
+            <button
+              class="icon-btn note-btn"
+              class:has-note={!!m.note}
+              title={m.note || 'Add a note'}
+              aria-label={m.note ? `Edit note for ${m.name}` : `Add a note for ${m.name}`}
+              onclick={() => startEditNote(m.id)}
+            >
+              🗒
+            </button>
             <button class="danger" title="Remove this whole mapping" onclick={() => removeMapping(m.id)}>✕</button>
           </div>
+          {#if editingNote.has(m.id)}
+            <input
+              class="note-input"
+              placeholder="Add a note…"
+              value={m.note}
+              aria-label="Note for {m.name}"
+              use:autofocus
+              onblur={(e) => stopEditNote(m.id, e.target.value)}
+              onkeydown={(e) => {
+                if (e.key === 'Enter') e.target.blur();
+                else if (e.key === 'Escape') stopEditNote(m.id);
+              }}
+            />
+          {/if}
           <div class="pair">
             <div
               class="side"
@@ -191,13 +266,6 @@
               {/if}
             </div>
           </div>
-          <input
-            class="note-input"
-            placeholder="Add a note…"
-            value={m.note}
-            aria-label="Note for {m.name}"
-            onchange={(e) => updateGroupNote(m.id, e.target.value)}
-          />
         </div>
       {/each}
     {/if}
@@ -262,11 +330,11 @@
     font-size: 13px;
   }
   .row {
-    padding: 8px 12px;
+    padding: 6px 12px;
     border-bottom: 1px solid var(--border);
     border-left: 3px solid transparent;
     display: grid;
-    gap: 6px;
+    gap: 4px;
   }
   .row.highlighted {
     border-left-color: var(--accent);
@@ -275,7 +343,7 @@
   .row-head {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 4px;
   }
   .name-input {
     flex: 1;
@@ -283,6 +351,40 @@
     font-weight: 600;
     font-size: 12px;
     padding: 4px 6px;
+  }
+  .name-label {
+    flex: 1;
+    min-width: 0;
+    font-weight: 600;
+    font-size: 12px;
+    padding: 4px 6px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .icon-btn {
+    flex: none;
+    border: none;
+    background: none;
+    padding: 2px 4px;
+    font-size: 12px;
+    line-height: 1;
+    color: var(--text-muted);
+    border-radius: var(--radius-sm);
+    opacity: 0;
+    transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease;
+  }
+  .row:hover .icon-btn,
+  .icon-btn:focus-visible,
+  .icon-btn.has-note {
+    opacity: 1;
+  }
+  .icon-btn:hover {
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+  .note-btn.has-note {
+    color: var(--accent);
   }
   .pair {
     display: grid;

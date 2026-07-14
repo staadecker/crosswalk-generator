@@ -26,6 +26,7 @@ import {
   buildNameToTargetRows,
   nameToTargetCsv,
 } from '../src/lib/crosswalk.js';
+import { buildZip } from '../src/lib/zip.js';
 import {
   addGroup,
   markNoMatch,
@@ -52,6 +53,7 @@ function check(cond, msg) {
 
 const naicsCsv = readFileSync(resolve(root, 'samples/naics-sample.csv'), 'utf8');
 const naceCsv = readFileSync(resolve(root, 'samples/nace-sample.csv'), 'utf8');
+const naics2022Csv = readFileSync(resolve(root, 'samples/2022_NAICS_Descriptions.csv'), 'utf8');
 
 const A = await parseCsv(naicsCsv);
 const B = await parseCsv(naceCsv);
@@ -61,6 +63,29 @@ const gA = guessColumns(A.fields, A.rows);
 check(gA.level === 'level', 'guesses the level column');
 check(gA.code === 'code', 'guesses the code column');
 check(gA.title === 'description', 'guesses the title column');
+check(gA.description === null, 'no separate description column to guess when title is the only text column');
+
+// A file with BOTH a short "Title" and a long-form "Description" column must guess
+// title as Title, not let Description's longer average text win the title slot.
+{
+  const naics2022 = await parseCsv(naics2022Csv);
+  const g2022 = guessColumns(naics2022.fields, naics2022.rows);
+  check(g2022.level === 'pLevel', 'guesses the level column (pLevel)');
+  check(g2022.code === 'Code', 'guesses the code column (Code)');
+  check(g2022.title === 'Title', 'guesses the short Title column as title, not the longer Description column');
+  check(g2022.description === 'Description', 'guesses the long-form Description column as description');
+}
+{
+  // Synthetic check isolating the same title-vs-description scoring, independent
+  // of any real sample file.
+  const fields = ['level', 'code', 'title', 'description'];
+  const rows = [
+    { level: '1', code: 'x', title: 'Short label', description: 'A '.repeat(80) + 'much longer explanation.' },
+  ];
+  const g = guessColumns(fields, rows);
+  check(g.title === 'title', 'an explicit "title" column wins over a longer "description" column');
+  check(g.description === 'description', 'the longer "description" column is still guessed for the description slot');
+}
 
 // --- hierarchy building ---
 const sysA = makeSystem('NAICS', A.rows, gA);
@@ -432,6 +457,124 @@ check(
 
   const withoutSynth = buildAutoHierarchy(rows, { code: 'c', title: 't' });
   check(withoutSynth.roots.length === 2, 'without synthesis (the default), 01.a/01.b become their own orphan roots');
+}
+
+// --- regression: synthesis must not flatten multiple branches into document order ---
+// A plain "shallowest first" sort of (real + synthesized) rows groups every branch's
+// same-depth rows together across the whole file, which breaks buildHierarchy's
+// "parent is the *nearest* preceding row with a smaller level" rule — every depth-2
+// row across the entire dataset would nest under whichever depth-1 row sorts last,
+// rather than its real parent.
+{
+  const rows = [
+    { c: '11', t: 'Root A' },
+    { c: '111', t: 'Sub A' },
+    { c: '1111', t: 'Sub AA' },
+    { c: '31', t: 'Root B' },
+    { c: '31111', t: 'Deep leaf missing 311 and 3111' }, // forces synthesis of 311 and 3111
+  ];
+  const tree = buildAutoHierarchy(rows, { code: 'c', title: 't' }, { synthesizeParents: true });
+  check(tree.byCode.get('111').parent === '11', 'branch A: 111 nests under its own root 11, not root B');
+  check(tree.byCode.get('1111').parent === '111', 'branch A: 1111 nests under 111');
+  check(tree.byCode.get('31111').parent === '3111', 'branch B: deep leaf nests under synthesized 3111');
+  check(tree.roots.map((r) => r.code).sort().join(',') === '11,31', 'both original roots stay roots after synthesis');
+}
+{
+  // The exact scenario reported: auto-detecting codes on the full 2022 NAICS
+  // descriptions sample must not dump unrelated subsectors (111, 112, 113, ...)
+  // under one unnamed synthesized parent.
+  const naics2022 = await parseCsv(naics2022Csv);
+  const g2022 = guessColumns(naics2022.fields, naics2022.rows);
+  const tree = buildAutoHierarchy(
+    naics2022.rows,
+    { code: g2022.code, title: g2022.title },
+    { synthesizeParents: true },
+  );
+  check(tree.byCode.get('111').parent === '11', '111 (Crop Production) nests under sector 11 (Agriculture)');
+  check(tree.byCode.get('112').parent === '11', '112 (Animal Production) nests under sector 11 (Agriculture)');
+  check(tree.byCode.get('113').parent === '11', '113 (Forestry and Logging) nests under sector 11 (Agriculture)');
+  const sector11Children = (tree.childrenOf.get('11') ?? []).map((n) => n.code).sort();
+  check(
+    sector11Children.join(',') === '111,112,113,114,115',
+    `sector 11 has only its own 5 real subsectors as children, not subsectors from other sectors (got ${sector11Children.join(',')})`,
+  );
+
+  // NAICS also uses hyphenated sector-range codes (a single top-level code
+  // standing in for a run of sibling sector numbers, e.g. "31-33" for
+  // Manufacturing) instead of one plain digit code per sector. A naive
+  // string-length-based rank misclassifies these as much deeper nodes (their
+  // hyphenated form is as long as a real 5-digit code) and truncation-based
+  // synthesis then invents bogus bare-digit ancestors (e.g. a fabricated "49")
+  // instead of recognizing they belong under the real range code.
+  check(tree.byCode.get('31-33').parent === null, '"31-33" (Manufacturing) is a top-level root, not nested');
+  check(tree.byCode.get('44-45').parent === null, '"44-45" (Retail Trade) is a top-level root, not nested');
+  check(tree.byCode.get('48-49').parent === null, '"48-49" (Transportation and Warehousing) is a top-level root, not nested');
+  check(tree.byCode.get('311').parent === '31-33', '311 (a real subsector) nests under the range code "31-33", not a bare "31"');
+  check(tree.byCode.get('331').parent === '31-33', '331 nests under "31-33" too — same range, different plain prefix');
+  check(tree.byCode.get('441').parent === '44-45', '441 nests under the range code "44-45"');
+  check(tree.byCode.get('481').parent === '48-49', '481 nests under the range code "48-49"');
+  check(tree.byCode.get('491').parent === '48-49', '491 nests under "48-49" too, not a fabricated bare "49"');
+  check(!tree.byCode.has('48'), 'no bogus bare "48" node is synthesized');
+  check(!tree.byCode.has('49'), 'no bogus bare "49" node is synthesized');
+  check(!tree.byCode.has('31'), 'no bogus bare "31" node is synthesized');
+  const roots = tree.roots.map((r) => r.code).sort();
+  check(roots.length === 20, `the full NAICS 2022 sample has exactly its real 20 sectors as roots (got ${roots.length})`);
+}
+
+// --- regression: synthesized/auto-detected codes must be sorted into their
+// natural position among siblings, not tacked on after every existing code
+// (they're only ever appended to the end of the internal working list, so
+// without an explicit sort they'd always render last regardless of value). ---
+{
+  const rows = [
+    { c: '31', t: 'Root B' },
+    { c: '3112', t: 'higher-numbered child of missing 311, listed first in the file' },
+    { c: '11', t: 'Root A' },
+    { c: '111', t: 'unrelated real length-3 code (just establishes that depth exists)' },
+    { c: '3111', t: 'lower-numbered child of missing 311, listed second in the file' },
+  ];
+  const tree = buildAutoHierarchy(rows, { code: 'c', title: 't' }, { synthesizeParents: true });
+  check(tree.byCode.has('311'), 'synthesis still creates the missing intermediate "311"');
+  check(
+    tree.roots.map((r) => r.code).join(',') === '11,31',
+    `roots are sorted (11 before 31) even though "31" appeared first in the file (got ${tree.roots.map((r) => r.code).join(',')})`,
+  );
+  const synthesizedSiblings = (tree.childrenOf.get('311') ?? []).map((n) => n.code);
+  check(
+    synthesizedSiblings.join(',') === '3111,3112',
+    `311's children are sorted (3111 before 3112) even though "3112" appeared first in the file (got ${synthesizedSiblings.join(',')})`,
+  );
+}
+
+// --- buildZip: dependency-free ZIP writer used by the single-export-button flow ---
+{
+  /** Minimal STORE-method zip reader, sufficient to round-trip what buildZip writes. */
+  function readZipEntries(buffer) {
+    const entries = {};
+    let offset = 0;
+    while (offset + 4 <= buffer.length && buffer.readUInt32LE(offset) === 0x04034b50) {
+      const size = buffer.readUInt32LE(offset + 18);
+      const nameLen = buffer.readUInt16LE(offset + 26);
+      const extraLen = buffer.readUInt16LE(offset + 28);
+      const nameStart = offset + 30;
+      const name = buffer.toString('utf8', nameStart, nameStart + nameLen);
+      const dataStart = nameStart + nameLen + extraLen;
+      entries[name] = buffer.toString('utf8', dataStart, dataStart + size);
+      offset = dataStart + size;
+    }
+    return entries;
+  }
+
+  const blob = buildZip([
+    { name: 'a.csv', content: 'x,y\n1,2\n' },
+    { name: 'b.csv', content: 'hello,world\n' + 'z'.repeat(1000) },
+  ]);
+  const buffer = Buffer.from(await blob.arrayBuffer());
+  check(buffer.readUInt32LE(0) === 0x04034b50, 'zip starts with a valid local file header signature');
+  const entries = readZipEntries(buffer);
+  check(Object.keys(entries).join(',') === 'a.csv,b.csv', 'zip contains both entries by name');
+  check(entries['a.csv'] === 'x,y\n1,2\n', 'first entry round-trips its exact content');
+  check(entries['b.csv'] === 'hello,world\n' + 'z'.repeat(1000), 'second (larger) entry round-trips its exact content');
 }
 
 console.log(failures ? `\n${failures} FAILURE(S)` : '\nAll logic checks passed.');

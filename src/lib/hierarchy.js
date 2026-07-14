@@ -241,20 +241,54 @@ export function leafCodesOf(tree) {
 // ---------------------------------------------------------------------------
 
 /**
+ * Parse a NAICS-style hyphenated sector-range code (e.g. "31-33", "44-45",
+ * "48-49" — a single top-level code standing in for a contiguous run of
+ * sibling sector numbers) into its numeric bounds. Both sides must be plain
+ * digits of the same width so "digits" is unambiguous. Returns null for
+ * anything else (including dot-separated codes, which never use this form).
+ *
+ * @param {string} code
+ * @returns {{ lo: number, hi: number, digits: number }|null}
+ */
+function parseHyphenRange(code) {
+  const m = /^(\d+)-(\d+)$/.exec(code);
+  if (!m) return null;
+  const [, loStr, hiStr] = m;
+  if (loStr.length !== hiStr.length) return null;
+  return { lo: Number(loStr), hi: Number(hiStr), digits: loStr.length };
+}
+
+/**
+ * A code's "effective length" for shape-ranking and ancestor-truncation
+ * purposes: a hyphenated range code counts as however wide its bounds are
+ * (e.g. "48-49" -> 2), since it stands at the same depth as its plain
+ * same-width sibling codes (e.g. "11", "21") — not at the depth its raw
+ * (longer, hyphen-containing) string length would otherwise suggest.
+ *
+ * @param {string} code
+ * @returns {number}
+ */
+function effectiveLength(code) {
+  return parseHyphenRange(code)?.digits ?? code.length;
+}
+
+/**
  * Rank every distinct code "shape" in a dataset by (dot-segment count, then
- * character length), both ascending. This single composite key handles both
- * conventions this app's sample data actually uses: pure dot-separated codes
- * (NACE-style "01" < "01.1" < "01.11") and pure length-based codes (NAICS-style
- * "11" < "111" < "1111") — and, as a bonus, mixed datasets where a top level
- * has no dots but isn't the same length as the next dot-less level (e.g. NACE's
- * single-letter sections vs its 2-digit divisions: both have 0 dots, but the
- * length tiebreak still separates them into two ranks).
+ * effective length — see effectiveLength), both ascending. This single
+ * composite key handles both conventions this app's sample data actually uses:
+ * pure dot-separated codes (NACE-style "01" < "01.1" < "01.11") and pure
+ * length-based codes (NAICS-style "11" < "111" < "1111", including hyphenated
+ * sector ranges like "48-49" ranking alongside plain 2-digit sectors) — and,
+ * as a bonus, mixed datasets where a top level has no dots but isn't the same
+ * length as the next dot-less level (e.g. NACE's single-letter sections vs its
+ * 2-digit divisions: both have 0 dots, but the length tiebreak still separates
+ * them into two ranks).
  *
  * @param {string[]} codes
  * @returns {Map<string, number>}  "dots:length" key -> 1-based rank
  */
 function rankCodeShapes(codes) {
-  const keyOf = (code) => `${(code.match(/\./g) ?? []).length}:${code.length}`;
+  const keyOf = (code) => `${(code.match(/\./g) ?? []).length}:${effectiveLength(code)}`;
   const distinct = [...new Set(codes.map(keyOf))]
     .map((k) => k.split(':').map(Number))
     .sort((a, b) => a[0] - b[0] || a[1] - b[1]);
@@ -289,15 +323,21 @@ function usesDotSeparators(codes) {
  * Given a code, guess the codes of its "missing" ancestors purely from string
  * structure: for dot-separated codes, repeatedly drop the last "."-segment
  * (e.g. "01.11" -> "01.1" -> "01"); for length-based codes, truncate to each
- * shorter code length actually present in the dataset (e.g. "11111" -> "1111"
- * -> "111" -> "11", when those lengths occur elsewhere in the data).
+ * shorter effective code length actually present in the dataset (e.g. "11111"
+ * -> "1111" -> "111" -> "11", when those lengths occur elsewhere in the data).
+ *
+ * At a length where the dataset has a hyphenated sector-range code (e.g.
+ * "48-49" covering plain prefixes 48-49), a plain truncated prefix that falls
+ * inside that range resolves to the range code instead of a fabricated bare
+ * prefix — e.g. truncating "491" to 2 digits yields "48-49", not a made-up "49".
  *
  * @param {string} code
  * @param {'dots'|'length'} convention
- * @param {number[]} shorterLengths  distinct lengths < code.length, ascending
+ * @param {number[]} shorterLengths  distinct effective lengths < the code's own, ascending
+ * @param {Map<number, {lo: number, hi: number, code: string}[]>} [hyphenRangesByDigits]
  * @returns {string[]}
  */
-function guessAncestorCodes(code, convention, shorterLengths) {
+function guessAncestorCodes(code, convention, shorterLengths, hyphenRangesByDigits) {
   const chain = [];
   if (convention === 'dots') {
     let cur = code;
@@ -307,7 +347,12 @@ function guessAncestorCodes(code, convention, shorterLengths) {
     }
   } else {
     for (const len of shorterLengths) {
-      if (len < code.length) chain.push(code.slice(0, len));
+      if (len >= effectiveLength(code)) continue;
+      const prefix = code.slice(0, len);
+      const ranges = hyphenRangesByDigits?.get(len);
+      const n = Number(prefix);
+      const inRange = ranges && Number.isFinite(n) ? ranges.find((r) => n >= r.lo && n <= r.hi) : null;
+      chain.push(inRange ? inRange.code : prefix);
     }
   }
   return chain;
@@ -317,11 +362,17 @@ function guessAncestorCodes(code, convention, shorterLengths) {
  * Synthesize a blank-title row for any ancestor code implied by an existing
  * code's structure but not itself present in the dataset (e.g. "01.a" and
  * "01.b" exist but "01" doesn't — a "01" row is added so the hierarchy still
- * nests instead of leaving "01.a"/"01.b" as orphan roots). Rows are returned
- * re-sorted shallowest-first (a stable sort, so ties keep their original
- * relative order) so buildHierarchy's "parent row precedes its children"
- * requirement holds for the synthesized rows too. Returns `rows` unchanged
- * (same reference) when nothing is missing.
+ * nests instead of leaving "01.a"/"01.b" as orphan roots).
+ *
+ * Rows are returned in a proper depth-first order: each (real or synthesized)
+ * parent is immediately followed by its own children before any other branch
+ * resumes. This is stronger than merely "shallower rows sort first" — a flat
+ * shallowest-first sort still interleaves unrelated branches at the same
+ * depth, which breaks buildHierarchy's "parent is the *nearest* preceding
+ * row with a smaller level" rule (e.g. a dataset with multiple depth-1
+ * branches would see every depth-2 row across the whole file nest under
+ * whichever depth-1 row happens to sort last, instead of its real parent).
+ * Returns `rows` unchanged (same reference) when nothing is missing.
  *
  * @param {Record<string,string>[]} rows
  * @param {{ code: string, title: string }} colMap
@@ -329,24 +380,72 @@ function guessAncestorCodes(code, convention, shorterLengths) {
  */
 export function synthesizeMissingParents(rows, colMap) {
   const { code: codeCol, title: titleCol } = colMap;
-  const codes = new Set(rows.map((r) => (r[codeCol] ?? '').trim()).filter((c) => c !== ''));
+  const realCodes = rows.map((r) => (r[codeCol] ?? '').trim()).filter((c) => c !== '');
+  const codes = new Set(realCodes);
   const convention = usesDotSeparators([...codes]) ? 'dots' : 'length';
-  const shorterLengths = [...new Set([...codes].map((c) => c.length))].sort((a, b) => a - b);
+  const shorterLengths = [...new Set([...codes].map(effectiveLength))].sort((a, b) => a - b);
 
-  const missing = new Set();
+  // Hyphenated sector-range codes actually present in the dataset (e.g. "48-49"),
+  // grouped by digit-width, so a plain truncated prefix that falls inside one
+  // resolves to the range code instead of a fabricated bare prefix — see
+  // guessAncestorCodes.
+  const hyphenRangesByDigits = new Map();
   for (const code of codes) {
-    for (const ancestor of guessAncestorCodes(code, convention, shorterLengths)) {
+    const range = parseHyphenRange(code);
+    if (!range) continue;
+    if (!hyphenRangesByDigits.has(range.digits)) hyphenRangesByDigits.set(range.digits, []);
+    hyphenRangesByDigits.get(range.digits).push({ lo: range.lo, hi: range.hi, code });
+  }
+
+  // Immediate parent of every code that needs one (real or synthesized), found by
+  // walking each real code's full ancestor chain nearest-parent-first and
+  // recording (then continuing to walk up from) every ancestor along the way, so
+  // ancestors-of-ancestors get a parent too.
+  const parentOf = new Map();
+  const missing = new Set();
+  for (const code of realCodes) {
+    const chain = guessAncestorCodes(code, convention, shorterLengths, hyphenRangesByDigits);
+    const nearestFirst = convention === 'dots' ? chain : [...chain].reverse();
+    let child = code;
+    for (const ancestor of nearestFirst) {
+      if (!parentOf.has(child)) parentOf.set(child, ancestor);
       if (!codes.has(ancestor)) missing.add(ancestor);
+      child = ancestor;
     }
   }
   if (!missing.size) return rows;
 
-  const synthRows = [...missing].map((code) => ({ [codeCol]: code, [titleCol]: '' }));
-  const depthOf = (code) => (convention === 'dots' ? (code.match(/\./g) ?? []).length : code.length);
-  return [...rows, ...synthRows]
-    .map((r, i) => ({ r, i }))
-    .sort((a, b) => depthOf((a.r[codeCol] ?? '').trim()) - depthOf((b.r[codeCol] ?? '').trim()) || a.i - b.i)
-    .map(({ r }) => r);
+  const rowByCode = new Map(rows.map((r) => [(r[codeCol] ?? '').trim(), r]));
+  for (const code of missing) rowByCode.set(code, { [codeCol]: code, [titleCol]: '' });
+
+  const allCodes = [...realCodes, ...missing];
+  const childrenOf = new Map();
+  for (const code of allCodes) {
+    const parent = parentOf.get(code);
+    if (parent === undefined) continue;
+    if (!childrenOf.has(parent)) childrenOf.set(parent, []);
+    childrenOf.get(parent).push(code);
+  }
+  // A synthesized code is only ever appended to `allCodes` after every real one,
+  // so without sorting it would always land last among its siblings regardless of
+  // its actual value (e.g. a synthesized "01" ancestor's siblings, or a
+  // synthesized code that happens to share a parent with later-synthesized ones).
+  // Natural (numeric-aware) sort puts every sibling — real or synthesized — in
+  // its proper position instead.
+  const byCodeNatural = (a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+  for (const children of childrenOf.values()) children.sort(byCodeNatural);
+  const roots = allCodes.filter((code) => parentOf.get(code) === undefined).sort(byCodeNatural);
+
+  const out = [];
+  const seen = new Set();
+  const visit = (code) => {
+    if (seen.has(code)) return;
+    seen.add(code);
+    out.push(rowByCode.get(code));
+    for (const child of childrenOf.get(code) ?? []) visit(child);
+  };
+  roots.forEach(visit);
+  return out;
 }
 
 /**

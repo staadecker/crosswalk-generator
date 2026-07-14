@@ -33,16 +33,21 @@ export function parseCsv(input) {
 }
 
 /**
- * Heuristically guess which columns hold the level, code, and title. The
- * (optional, longer-form) description column is not guessed — it's left for
- * the user to pick explicitly since most files don't have one.
+ * Heuristically guess which columns hold the level, code, title, and
+ * (optional, longer-form) description. Title and description are guessed
+ * together since they compete for the same signal (both are free text): an
+ * explicit title/name/label-ish column name always wins the title slot over
+ * a longer description-ish column, so a file with both "Title" and
+ * "Description" columns doesn't have its long-form description mistaken for
+ * the short title just because it has more text. When only one free-text
+ * column exists, it's guessed as the title and description is left unset.
  *
  * @param {string[]} fields
  * @param {Record<string,string>[]} rows
- * @returns {{ level: string|null, code: string|null, title: string|null }}
+ * @returns {{ level: string|null, code: string|null, title: string|null, description: string|null }}
  */
 export function guessColumns(fields, rows) {
-  if (!fields.length) return { level: null, code: null, title: null };
+  if (!fields.length) return { level: null, code: null, title: null, description: null };
 
   const sample = rows.slice(0, 200);
   const stats = fields.map((f) => {
@@ -91,15 +96,32 @@ export function guessColumns(fields, rows) {
     return score;
   });
 
-  // Title: longest average text, not the code/level column.
+  // Title: an explicit title/name/label-ish column name wins outright, since that
+  // signal is far more reliable than raw text length when a separate, longer
+  // description column also exists. Only fall back to "longest remaining text
+  // column" (which a lone description-only column will naturally win) when no
+  // field name looks title-like.
   const title = pickBest(stats, (s) => {
     if (s.field === level || s.field === code) return -1;
-    let score = s.avgLen;
-    if (/desc|title|name|label|text/i.test(s.field)) score += 100;
+    let score = s.avgLen * 0.01;
+    if (/title|name|label/i.test(s.field)) score += 100;
+    else if (/desc|text/i.test(s.field)) score += 10;
     return score;
   });
 
-  return { level, code, title };
+  // Description (optional): the longest remaining text column, excluding
+  // level/code/title. Guarded to a minimum average length so a short, unrelated
+  // column (e.g. a numeric sort-order field) isn't guessed just for being the
+  // only thing left.
+  const description = pickBest(stats, (s) => {
+    if (s.field === level || s.field === code || s.field === title) return -1;
+    if (s.avgLen < 8) return -1;
+    let score = s.avgLen;
+    if (/desc|detail|definition|explanation|note/i.test(s.field)) score += 100;
+    return score;
+  });
+
+  return { level, code, title, description };
 }
 
 function pickBest(stats, scoreFn) {

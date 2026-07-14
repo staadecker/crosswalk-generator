@@ -2,17 +2,19 @@
   import FileUpload from './FileUpload.svelte';
   import ColumnMapper from './ColumnMapper.svelte';
   import TreePanel from './TreePanel.svelte';
-  import { parseCsv } from '../lib/csv.js';
-  import { makeSystem } from '../lib/stores.js';
+  import { parseCsv, guessColumns } from '../lib/csv.js';
+  import { makeSystem, mappings, clearMappingsForSide } from '../lib/stores.js';
+  import { get } from 'svelte/store';
 
   let {
     system = $bindable(null), // bound system object (or null)
     selected = new Set(), // selection Set for this side
     counts = new Map(),
     noMatchCodes = new Set(),
+    uniqueMappingOnly = false,
     accent = 'A',
     title = 'System',
-    sampleFile = null, // e.g. 'naics-sample.csv' — offers a "try sample data" shortcut
+    samples = [], // [{ file, label }] — each offers a one-click "try sample data" shortcut
     onToggle,
     onClear,
     onHover,
@@ -47,17 +49,37 @@
     return parseAndStage(file.name, file);
   }
 
-  async function loadSample() {
+  // Sample datasets skip the column-mapping step entirely: columns are guessed
+  // and the hierarchy is auto-built (level auto-detected from code structure,
+  // with missing parent codes synthesized) in one click, so trying out the app
+  // never requires the user to understand CSV column semantics up front.
+  async function loadSample(sample) {
     error = '';
     loading = true;
     try {
-      const res = await fetch(`${import.meta.env.BASE_URL}samples/${sampleFile}`);
+      const res = await fetch(`${import.meta.env.BASE_URL}samples/${sample.file}`);
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
       const text = await res.text();
-      await parseAndStage(sampleFile, text);
+      const { fields, rows } = await parseCsv(text);
+      if (!fields.length || !rows.length) {
+        error = 'That sample has no readable rows.';
+        return;
+      }
+      const guess = guessColumns(fields, rows);
+      const colMap = {
+        level: null,
+        code: guess.code,
+        title: guess.title,
+        description: guess.description,
+        autoLevel: true,
+        autoParents: true,
+      };
+      system = makeSystem(sample.label, rows, colMap);
+      onClear?.();
     } catch (e) {
-      loading = false;
       error = `Could not load sample data: ${e.message ?? e}`;
+    } finally {
+      loading = false;
     }
   }
 
@@ -73,7 +95,21 @@
     parsed = null;
   }
 
+  // Replacing this side's file makes any mapping that touches it meaningless
+  // (its codes belong to a tree that no longer exists), so replacing the file
+  // deletes those mappings outright rather than leaving orphaned half-mappings
+  // behind. Confirm first since this can't be undone.
   function changeFile() {
+    const side = accent === 'A' ? 'source' : 'target';
+    const key = side === 'source' ? 'sourceLeafCodes' : 'targetLeafCodes';
+    const affected = get(mappings).filter((g) => g[key].length > 0).length;
+    if (affected > 0) {
+      const ok = confirm(
+        `Replacing this file will delete ${affected} mapping${affected === 1 ? '' : 's'} that reference it. This cannot be undone. Continue?`,
+      );
+      if (!ok) return;
+    }
+    clearMappingsForSide(side);
     system = null;
     onClear?.();
     phase = 'idle';
@@ -87,12 +123,14 @@
     {selected}
     {counts}
     {noMatchCodes}
+    {uniqueMappingOnly}
     {accent}
     {onToggle}
     {onClear}
     {onHover}
     {onSelectUnmapped}
     onChange={changeFile}
+    onRename={(name) => (system = { ...system, name })}
   />
 {:else}
   <div class="setup" data-accent={accent}>
@@ -100,13 +138,24 @@
     {#if phase === 'idle'}
       <FileUpload
         label={`Upload ${title} CSV`}
-        hint="Must include level, code, and title columns. A description column is optional."
+        hint="Must include code and title columns. Level and description are optional."
         {onFile}
       />
-      {#if sampleFile}
-        <button class="ghost small sample-btn" onclick={loadSample} disabled={loading}>
-          Try with sample data
-        </button>
+      {#if samples.length}
+        <div class="samples">
+          <span class="samples-label">Or try sample data:</span>
+          <div class="sample-btns">
+            {#each samples as sample (sample.file)}
+              <button
+                class="ghost small sample-btn"
+                onclick={() => loadSample(sample)}
+                disabled={loading}
+              >
+                {sample.label}
+              </button>
+            {/each}
+          </div>
+        </div>
       {/if}
       {#if loading}<p class="status">Parsing…</p>{/if}
       {#if error}<p class="status error">{error}</p>{/if}
@@ -145,6 +194,22 @@
   }
   .status.error {
     color: var(--danger);
+  }
+  .samples {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+  }
+  .samples-label {
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .sample-btns {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 6px;
   }
   .sample-btn {
     align-self: center;

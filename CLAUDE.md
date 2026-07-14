@@ -9,7 +9,7 @@ many-to-many crosswalk between two hierarchical classification systems (e.g.
 NAICS ↔ NACE). Users upload two CSVs, browse each system as a tree, and link
 codes together. Everything runs in the browser — no backend, no network calls;
 data is auto-saved to `localStorage` and can be exported as JSON (project) or
-CSV (crosswalk).
+a `.zip` of CSVs (crosswalk).
 
 ## Svelte version
 
@@ -21,28 +21,43 @@ https://svelte.dev/llms-small.txt for a condensed reference if unsure.
 
 ## Structure
 
-- `src/lib/csv.js` — CSV parsing (PapaParse) + column-guessing heuristics
-  (level/code/title; description is never auto-guessed).
+- `src/lib/csv.js` — CSV parsing (PapaParse) + column-guessing heuristics for
+  level/code/title/description. Title and description are guessed together
+  (an explicit title/name/label-ish field name always wins the title slot
+  over a longer description-ish column) since they compete for the same
+  "free text" signal.
 - `src/lib/hierarchy.js` — builds a tree from flat rows, either via an
   explicit level column (`buildHierarchy`) or auto-detected levels inferred
-  from code structure (`assignAutoLevels` / `buildAutoHierarchy`, with
-  optional missing-parent synthesis via `synthesizeMissingParents`);
-  `flattenTree` does the depth-first, expand/filter-aware flattening used by
-  the tree UI; `expandToLeaves`/`compactCodes`/`leafCodesOf` convert between
-  leaf codes (the only codes that matter for export) and their compacted
-  parent-code display form.
+  from code structure (`assignAutoLevels` / `buildAutoHierarchy`, including
+  NAICS-style hyphenated sector-range codes like "48-49" — see
+  `effectiveLength`/`parseHyphenRange`). Auto-detect defaults to also
+  synthesizing missing ancestor codes (`synthesizeMissingParents`), which
+  re-derives a proper depth-first row order (not just "shallower first" —
+  see the function's docstring for why that distinction matters) and sorts
+  siblings naturally so synthesized codes land in their real position instead
+  of always trailing after existing ones. `flattenTree` does the depth-first,
+  expand/filter-aware flattening used by the tree UI;
+  `expandToLeaves`/`compactCodes`/`leafCodesOf` convert between leaf codes
+  (the only codes that matter for export) and their compacted parent-code
+  display form.
 - `src/lib/stores.js` — Svelte stores holding the two systems, the mapping
   *groups* (many-to-many, leaf-codes-only, one row per group not per pair),
   current selections, hover state (for cross-panel highlight), the
   unique-mapping-once toggle, and current selections; also owns localStorage
   autosave/restore and project export/import (JSON snapshot).
+  `clearMappingsForSide` deletes every group touching one side (used when
+  that side's file is replaced).
 - `src/lib/crosswalk.js` — turns mapping groups into exportable crosswalk
-  rows/CSV, in either single-file (N×N) or split (source→name, name→target)
-  form.
+  rows/CSV (N×N single-file and source→name/name→target split forms) plus
+  `downloadFile`/`downloadBlob` for triggering browser downloads.
+- `src/lib/zip.js` — dependency-free ZIP archive writer (STORE/uncompressed
+  method) used to bundle the three exported CSVs into one `.zip` download.
 - `src/components/` — UI: file upload → column mapping → tree panel per
-  system (with progress bar, sample-data shortcut, grey-out of mapped
-  entries), the mapping bar (build a group from the current selections), and
-  the mapping list (named groups, drag-and-drop, removable bubbles).
+  system (with progress bar, sample-data shortcuts, grey-out of mapped
+  entries, an editable dataset name used in export filenames), the mapping
+  bar (build a group from the current selections), and the mapping list
+  (named groups, drag-and-drop, removable bubbles, name/note kept as compact
+  static text behind an edit toggle rather than always-editable fields).
 - `tests/logic.test.mjs` — plain-Node tests for the pure logic in `src/lib/*`
   (no browser/DOM). Run with `npm run test:logic`.
 - `tests/crosswalk.spec.js` — Playwright end-to-end test driving the real UI.
@@ -76,6 +91,17 @@ npm test              # logic tests + Playwright e2e
 - When changing `src/lib/*.js`, update `tests/logic.test.mjs` alongside it,
   and run `npm run test:logic` before considering a change done. For UI-visible
   changes, also update `tests/crosswalk.spec.js` and run `npm run test:e2e`.
+- Testing is not optional and not just for the one thing you touched. Every bug
+  fix and every new/changed feature needs a regression test that fails without
+  the fix and passes with it — a fix with no test is not done. Before calling
+  any change complete, run the *full* suite (`npm test`), not just the file you
+  edited: this codebase has repeatedly shipped bugs (bad column-guessing
+  heuristics, a hierarchy-building bug that silently misnested codes, a
+  mapping-uniqueness check that silently dropped codes instead of blocking the
+  selection) that a narrower test run would have missed or that had no test
+  coverage at all. When a bug report describes a specific dataset or sequence of
+  UI actions, reproduce it first (a quick Node script against `src/lib/*.js`, or
+  a Playwright test) before trusting that a fix actually fixes it.
 - Always keep `README.md` up to date with the current feature set, CSV format,
   and export shape whenever you change behavior that it documents — treat a
   stale README as an incomplete change, not a follow-up.
