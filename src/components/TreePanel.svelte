@@ -132,30 +132,32 @@
 <div class="panel" data-accent={accent}>
   <header>
     <div class="titlerow">
-      {#if editingName}
-        <input
-          class="name-input"
-          value={system.name}
-          title="Dataset name — also used in exported filenames"
-          aria-label="Dataset name"
-          use:autofocus
-          onblur={(e) => stopEditName(e.target.value)}
-          onkeydown={(e) => {
-            if (e.key === 'Enter') e.target.blur();
-            else if (e.key === 'Escape') stopEditName();
-          }}
-        />
-      {:else}
-        <span class="name-label" title="Dataset name — also used in exported filenames">{system.name}</span>
-        <button
-          class="icon-btn"
-          title="Rename dataset"
-          aria-label="Rename {system.name}"
-          onclick={() => (editingName = true)}
-        >
-          {@html editIcon}
-        </button>
-      {/if}
+      <div class="name-wrap">
+        {#if editingName}
+          <input
+            class="name-input"
+            value={system.name}
+            title="Dataset name — also used in exported filenames"
+            aria-label="Dataset name"
+            use:autofocus
+            onblur={(e) => stopEditName(e.target.value)}
+            onkeydown={(e) => {
+              if (e.key === 'Enter') e.target.blur();
+              else if (e.key === 'Escape') stopEditName();
+            }}
+          />
+        {:else}
+          <span class="name-label" title="Dataset name — also used in exported filenames">{system.name}</span>
+          <button
+            class="icon-btn"
+            title="Rename dataset"
+            aria-label="Rename {system.name}"
+            onclick={() => (editingName = true)}
+          >
+            {@html editIcon}
+          </button>
+        {/if}
+      </div>
       <button
         class="danger small"
         onclick={() => onChange?.()}
@@ -302,8 +304,14 @@
     align-items: center;
     gap: 6px;
   }
-  .name-label {
+  .name-wrap {
     flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+  .name-label {
     min-width: 0;
     font-size: 14px;
     font-weight: 700;

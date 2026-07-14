@@ -198,29 +198,31 @@
       {#each visible as m (m.id)}
         <div class="row" class:nomatch={m.noMatch} class:highlighted={highlightedIds.has(m.id)}>
           <div class="row-head">
-            {#if editingName.has(m.id)}
-              <input
-                class="name-input"
-                value={m.name}
-                aria-label="Mapping name"
-                use:autofocus
-                onblur={(e) => stopEditName(m.id, e.target.value)}
-                onkeydown={(e) => {
-                  if (e.key === 'Enter') e.target.blur();
-                  else if (e.key === 'Escape') stopEditName(m.id);
-                }}
-              />
-            {:else}
-              <span class="name-label" title={m.name}>{m.name}</span>
-              <button
-                class="icon-btn"
-                title="Rename"
-                aria-label="Rename {m.name}"
-                onclick={() => startEditName(m.id)}
-              >
-                {@html editIcon}
-              </button>
-            {/if}
+            <div class="name-wrap">
+              {#if editingName.has(m.id)}
+                <input
+                  class="name-input"
+                  value={m.name}
+                  aria-label="Mapping name"
+                  use:autofocus
+                  onblur={(e) => stopEditName(m.id, e.target.value)}
+                  onkeydown={(e) => {
+                    if (e.key === 'Enter') e.target.blur();
+                    else if (e.key === 'Escape') stopEditName(m.id);
+                  }}
+                />
+              {:else}
+                <span class="name-label" title={m.name}>{m.name}</span>
+                <button
+                  class="icon-btn"
+                  title="Rename"
+                  aria-label="Rename {m.name}"
+                  onclick={() => startEditName(m.id)}
+                >
+                  {@html editIcon}
+                </button>
+              {/if}
+            </div>
             <button
               class="icon-btn note-btn"
               class:has-note={!!m.note}
@@ -406,6 +408,13 @@
     align-items: center;
     gap: 4px;
   }
+  .name-wrap {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
   .name-input {
     flex: 1;
     min-width: 0;
@@ -414,7 +423,6 @@
     padding: 4px 6px;
   }
   .name-label {
-    flex: 1;
     min-width: 0;
     font-weight: 600;
     font-size: 12px;
