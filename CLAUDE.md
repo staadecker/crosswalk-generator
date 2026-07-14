@@ -19,6 +19,22 @@ When adding or editing components, use Svelte 5 idioms, not Svelte 4's
 `export let` / `on:event` / reactive `$:` statement syntax. See
 https://svelte.dev/llms-small.txt for a condensed reference if unsure.
 
+## Documentation map
+
+- `README.md` — the project pitch and how to run/build/deploy it. Keep it
+  high-level; it does not need to enumerate every feature or behavioral
+  detail.
+- `SPEC.md` — the actual specification: data model, hierarchy-building
+  algorithm, mapping/undo-redo invariants, export row/column shapes, and
+  expected UI behavior, written for an LLM (or contributor) that needs to
+  know exactly how something is supposed to work before changing it. This is
+  the file to read before modifying `src/lib/*.js` or any behavior it
+  documents, and the file to update whenever that behavior changes —
+  treating a stale `SPEC.md` as an incomplete change, the same way a stale
+  README used to be treated before this file existed.
+- `CLAUDE.md` (this file) — workflow/convention guidance for agents working
+  in the repo, not a description of app behavior.
+
 ## Structure
 
 - `src/lib/csv.js` — CSV parsing (PapaParse) + column-guessing heuristics for
@@ -42,20 +58,22 @@ https://svelte.dev/llms-small.txt for a condensed reference if unsure.
   display form.
 - `src/lib/stores.js` — Svelte stores holding the two systems (`systemA`/
   `systemB`), the mapping *groups* (many-to-many, leaf-codes-only, one row per
-  group not per pair — `{ id, name, aLeafCodes, bLeafCodes, note }`), current
-  selections, hover state (for cross-panel highlight), the unique-mapping-once
-  toggle, and current selections; also owns localStorage autosave/restore and
-  project export/import (JSON snapshot). The two systems are symmetric — the
-  data model and every function that takes a `side` param use `'A'`/`'B'`,
-  never "source"/"target" (there's no inherent direction; UI labels prefer the
-  user's dataset name when one is set, falling back to "A"/"B"). `defaultGroupName`
-  builds a new group's default name from its A-side leaf codes, semicolon-joined.
+  group not per pair — `{ id, name, aLeafCodes, bLeafCodes, note, approx }`),
+  current selections, hover state (for cross-panel highlight), and undo/redo
+  history over `mappings`; also owns localStorage autosave/restore and
+  project export/import (JSON snapshot). A leaf code may belong to at most
+  one *real* mapping group per side (always enforced, not a toggle) — see
+  `SPEC.md`. The two systems are symmetric — the data model and every
+  function that takes a `side` param use `'A'`/`'B'`, never "source"/"target"
+  (there's no inherent direction; UI labels prefer the user's dataset name
+  when one is set, falling back to "A"/"B"). `defaultGroupName` builds a new
+  group's default name from its A-side leaf codes, semicolon-joined.
   `clearMappingsForSide` deletes every group touching one side (used when
   that side's file is replaced).
 - `src/lib/crosswalk.js` — turns mapping groups into exportable crosswalk
-  rows/CSV (N×N single-file `a_code,a_title,b_code,b_title,group_name,note`,
-  plus A→name/name→B split forms) plus `downloadFile`/`downloadBlob` for
-  triggering browser downloads.
+  rows/CSV (N×N single-file `a_code,a_title,b_code,b_title,group_name,
+  relationship,note`, plus A→name/name→B split forms) plus
+  `downloadFile`/`downloadBlob` for triggering browser downloads.
 - `src/lib/zip.js` — dependency-free ZIP archive writer (STORE/uncompressed
   method) used to bundle the three exported CSVs into one `.zip` download.
 - `src/components/` — UI: file upload → column mapping → tree panel per
@@ -121,9 +139,11 @@ npm test              # logic tests + Playwright e2e
   coverage at all. When a bug report describes a specific dataset or sequence of
   UI actions, reproduce it first (a quick Node script against `src/lib/*.js`, or
   a Playwright test) before trusting that a fix actually fixes it.
-- Always keep `README.md` up to date with the current feature set, CSV format,
-  and export shape whenever you change behavior that it documents — treat a
-  stale README as an incomplete change, not a follow-up.
+- Always keep `SPEC.md` up to date with the current data model, algorithms,
+  and export shape whenever you change behavior that it documents (see
+  Documentation map above) — treat a stale `SPEC.md` as an incomplete
+  change, not a follow-up. Update `README.md` too if the change affects its
+  higher-level feature list or setup/CSV-format instructions.
 - Icon buttons: use inline SVGs from the `@material-design-icons/svg` package
   rather than emoji or hand-drawn paths. Import the specific icon with Vite's
   `?raw` suffix (e.g. `import editIcon from
