@@ -1,32 +1,51 @@
 <script>
-  import { createEventDispatcher } from 'svelte';
-  import { flattenTree } from '../lib/hierarchy.js';
+  import { flattenTree, expandToLeaves, leafCodesOf } from '../lib/hierarchy.js';
 
-  export let system;              // { name, tree, colMap, rows }
-  export let selectedCode = null; // currently selected code (string|null)
-  export let counts = new Map();  // code -> mapping count for this side
-  export let accent = 'A';        // 'A' | 'B' for subtle color differentiation
+  let {
+    system, // { name, tree, colMap, rows }
+    selected = new Set(), // Set of selected codes on this side
+    counts = new Map(), // code -> mapping count for this side
+    noMatchCodes = new Set(), // codes flagged no-match on this side
+    accent = 'A', // 'A' | 'B' for subtle color differentiation
+    onToggle,
+    onClear,
+    onChange,
+    onHover, // called with the hovered code, or null on leave — drives Mappings-pane highlight
+    onSelectUnmapped, // called with an array of not-yet-mapped leaf codes under a node
+  } = $props();
 
-  const dispatch = createEventDispatcher();
-
-  let query = '';
-  let expanded = new Set();
-  let allExpanded = false;
+  let query = $state('');
+  let expanded = $state(new Set());
+  let allExpanded = $state(false);
 
   // Default: expand roots so the tree isn't a wall of top-level codes only.
-  $: if (system && expanded.size === 0 && !allExpanded) {
-    expanded = new Set(system.tree.roots.map((r) => r.code));
-  }
+  $effect(() => {
+    if (system && expanded.size === 0 && !allExpanded) {
+      expanded = new Set(system.tree.roots.map((r) => r.code));
+    }
+  });
 
-  $: normalizedQuery = query.trim().toLowerCase();
-  $: matcher = normalizedQuery
-    ? (node) =>
-        node.code.toLowerCase().includes(normalizedQuery) ||
-        node.description.toLowerCase().includes(normalizedQuery)
-    : null;
+  let normalizedQuery = $derived(query.trim().toLowerCase());
+  let matcher = $derived(
+    normalizedQuery
+      ? (node) =>
+          node.code.toLowerCase().includes(normalizedQuery) ||
+          node.title.toLowerCase().includes(normalizedQuery)
+      : null,
+  );
 
-  $: rows = system ? flattenTree(system.tree, expanded, matcher) : [];
-  $: warnings = system?.tree.warnings ?? [];
+  let rows = $derived(system ? flattenTree(system.tree, expanded, matcher) : []);
+  let warnings = $derived(system?.tree.warnings ?? []);
+
+  // Mapping progress, counted over leaf codes only (parents aggregate counts but
+  // aren't themselves exported, so they'd double-count progress).
+  let leafTotal = $derived(system ? leafCodesOf(system.tree).length : 0);
+  let leafMapped = $derived(
+    system
+      ? leafCodesOf(system.tree).filter((c) => (counts.get(c) ?? 0) > 0 || noMatchCodes.has(c)).length
+      : 0,
+  );
+  let progressPct = $derived(leafTotal ? Math.round((leafMapped / leafTotal) * 100) : 0);
 
   function toggle(code) {
     const next = new Set(expanded);
@@ -47,7 +66,17 @@
   }
 
   function select(code) {
-    dispatch('select', code === selectedCode ? null : code);
+    onToggle?.(code); // click toggles membership in the selection set
+  }
+
+  // Selects every not-yet-mapped leaf descendant of `code` (leaves the rest of
+  // the current selection untouched).
+  function selectUnmapped(code) {
+    if (!system) return;
+    const leaves = [...expandToLeaves(system.tree, [code])].filter(
+      (c) => (counts.get(c) ?? 0) === 0 && !noMatchCodes.has(c),
+    );
+    if (leaves.length) onSelectUnmapped?.(leaves);
   }
 
   function highlight(text) {
@@ -73,21 +102,42 @@
   <header>
     <div class="titlerow">
       <h2 title={system.name}>{system.name}</h2>
-      <button class="ghost small" on:click={() => dispatch('change')} title="Replace this file">
+      <button class="ghost small" onclick={() => onChange?.()} title="Replace this file">
         Change file
       </button>
     </div>
     <div class="controls">
       <input
         type="search"
-        placeholder="Search code or description…"
+        placeholder="Search code or title…"
         bind:value={query}
         aria-label="Search {system.name}"
       />
-      <button class="ghost small" on:click={expandAll} title="Expand all">Expand</button>
-      <button class="ghost small" on:click={collapseAll} title="Collapse all">Collapse</button>
+      <button class="ghost small" onclick={expandAll} title="Expand all">Expand</button>
+      <button class="ghost small" onclick={collapseAll} title="Collapse all">Collapse</button>
     </div>
-    <div class="meta">{system.tree.nodes.length} codes</div>
+    <div class="meta">
+      <span>{system.tree.nodes.length} codes</span>
+      {#if selected.size > 0}
+        <span class="selcount">
+          {selected.size} selected
+          <button class="linky" onclick={() => onClear?.()}>Clear</button>
+        </span>
+      {/if}
+    </div>
+    <div
+      class="progress"
+      role="progressbar"
+      aria-label="{system.name} mapping progress"
+      aria-valuenow={leafMapped}
+      aria-valuemin="0"
+      aria-valuemax={leafTotal}
+    >
+      <div class="progress-track">
+        <div class="progress-fill" style="width: {progressPct}%"></div>
+      </div>
+      <span class="progress-label">{leafMapped} / {leafTotal} mapped</span>
+    </div>
   </header>
 
   {#if warnings.length}
@@ -100,27 +150,43 @@
     </details>
   {/if}
 
-  <div class="tree" role="tree" aria-label={system.name}>
+  <div class="tree" role="tree" aria-label={system.name} aria-multiselectable="true">
     {#if rows.length === 0}
-      <p class="empty">No codes match “{query}”.</p>
+      <p class="empty">{#if query}No codes match “{query}”.{:else}No codes to show.{/if}</p>
     {/if}
     {#each rows as { node, hasChildren } (node.code)}
       {@const count = counts.get(node.code) ?? 0}
+      {@const isSelected = selected.has(node.code)}
+      {@const isNoMatch = noMatchCodes.has(node.code)}
+      {@const isMapped = count > 0 || isNoMatch}
       <div
         class="node"
-        class:selected={node.code === selectedCode}
+        class:selected={isSelected}
+        class:mapped={isMapped}
         role="treeitem"
-        aria-selected={node.code === selectedCode}
+        aria-selected={isSelected}
         tabindex="0"
+        draggable="true"
+        title={node.description || undefined}
         style="padding-left: {node.depth * 16 + 8}px"
-        on:click={() => select(node.code)}
-        on:keydown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), select(node.code))}
+        onclick={() => select(node.code)}
+        onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), select(node.code))}
+        ondragstart={(e) => {
+          e.dataTransfer.setData('text/plain', node.code);
+          e.dataTransfer.setData('application/x-crosswalk-side', accent);
+          e.dataTransfer.effectAllowed = 'copy';
+        }}
+        onmouseenter={() => onHover?.(node.code)}
+        onmouseleave={() => onHover?.(null)}
       >
         {#if hasChildren}
           <button
             class="twist"
             aria-label={expanded.has(node.code) ? 'Collapse' : 'Expand'}
-            on:click|stopPropagation={() => toggle(node.code)}
+            onclick={(e) => {
+              e.stopPropagation();
+              toggle(node.code);
+            }}
           >
             <span class:open={expanded.has(node.code) || normalizedQuery}>▶</span>
           </button>
@@ -128,9 +194,24 @@
           <span class="twist spacer"></span>
         {/if}
         <span class="code">{#each highlight(node.code) as p}<span class:hit={p.hit}>{p.t}</span>{/each}</span>
-        <span class="desc">{#each highlight(node.description) as p}<span class:hit={p.hit}>{p.t}</span>{/each}</span>
-        {#if count > 0}
+        <span class="desc">{#each highlight(node.title) as p}<span class:hit={p.hit}>{p.t}</span>{/each}</span>
+        {#if isNoMatch}
+          <span class="badge nomatch" title="Marked as no match">∅ no match</span>
+        {:else if count > 0}
           <span class="badge" title="{count} mapping{count > 1 ? 's' : ''}">{count}</span>
+        {/if}
+        {#if hasChildren}
+          <button
+            class="select-unmapped"
+            title="Select all not-yet-mapped codes under {node.code}"
+            aria-label="Select all not-yet-mapped codes under {node.code}"
+            onclick={(e) => {
+              e.stopPropagation();
+              selectUnmapped(node.code);
+            }}
+          >
+            ◎
+          </button>
         {/if}
       </div>
     {/each}
@@ -184,6 +265,46 @@
     margin-top: 6px;
     font-size: 11px;
     color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .selcount {
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .progress {
+    margin-top: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .progress-track {
+    flex: 1;
+    height: 6px;
+    border-radius: 3px;
+    background: var(--border);
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: inherit;
+    transition: width 0.15s ease;
+  }
+  .progress-label {
+    flex: none;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .linky {
+    border: none;
+    background: none;
+    padding: 0 0 0 2px;
+    color: var(--accent);
+    font-size: 11px;
+    text-decoration: underline;
   }
   .warnings {
     border-bottom: 1px solid var(--warning-border);
@@ -229,17 +350,28 @@
     background: var(--accent-soft);
     border-left-color: var(--accent);
   }
+  .node.mapped .code,
+  .node.mapped .desc {
+    opacity: 0.55;
+  }
   .twist {
     border: none;
     background: none;
-    padding: 0;
-    width: 16px;
-    height: 16px;
+    padding: 4px;
+    margin: -4px;
+    width: 26px;
+    height: 26px;
+    border-radius: var(--radius-sm);
     display: inline-flex;
     align-items: center;
     justify-content: center;
     color: var(--text-muted);
     flex: none;
+    transition: background 0.12s ease, color 0.12s ease;
+  }
+  .twist:hover {
+    background: var(--accent-soft);
+    color: var(--accent);
   }
   .twist span {
     font-size: 9px;
@@ -250,6 +382,29 @@
   }
   .twist.spacer {
     display: inline-block;
+  }
+  .select-unmapped {
+    border: none;
+    background: none;
+    padding: 2px;
+    width: 20px;
+    height: 20px;
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    border-radius: var(--radius-sm);
+    opacity: 0;
+    transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease;
+  }
+  .node:hover .select-unmapped,
+  .select-unmapped:focus-visible {
+    opacity: 1;
+  }
+  .select-unmapped:hover {
+    background: var(--accent-soft);
+    color: var(--accent);
   }
   .code {
     font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
@@ -279,5 +434,11 @@
     border-radius: 9px;
     background: var(--accent);
     color: var(--accent-contrast);
+  }
+  .badge.nomatch {
+    background: var(--surface-2);
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+    font-weight: 500;
   }
 </style>

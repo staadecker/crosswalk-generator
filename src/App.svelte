@@ -10,7 +10,18 @@
     selectionA,
     selectionB,
     mappingCounts,
+    toggleSelection,
+    clearSelection,
+    addToSelection,
+    hoverA,
+    hoverB,
   } from './lib/stores.js';
+
+  function linked() {
+    // Per the UX decision, clear both selections after creating links / no-match.
+    clearSelection(selectionA);
+    clearSelection(selectionB);
+  }
 </script>
 
 <div class="app">
@@ -21,9 +32,15 @@
       <SystemPanel
         title="System A (source)"
         accent="A"
+        sampleFile="naics-sample.csv"
         bind:system={$systemA}
-        bind:selectedCode={$selectionA}
+        selected={$selectionA}
         counts={$mappingCounts.source}
+        noMatchCodes={$mappingCounts.noMatchSource}
+        onToggle={(code) => toggleSelection(selectionA, code)}
+        onClear={() => clearSelection(selectionA)}
+        onHover={(code) => hoverA.set(code)}
+        onSelectUnmapped={(codes) => addToSelection(selectionA, codes)}
       />
     </section>
 
@@ -33,7 +50,11 @@
         systemB={$systemB}
         selectionA={$selectionA}
         selectionB={$selectionB}
-        mappings={$mappings}
+        onLinked={linked}
+        onClearSource={() => clearSelection(selectionA)}
+        onClearTarget={() => clearSelection(selectionB)}
+        onRemoveSource={(code) => toggleSelection(selectionA, code)}
+        onRemoveTarget={(code) => toggleSelection(selectionB, code)}
       />
       <MappingList
         mappings={$mappings}
@@ -48,9 +69,15 @@
       <SystemPanel
         title="System B (target)"
         accent="B"
+        sampleFile="nace-sample.csv"
         bind:system={$systemB}
-        bind:selectedCode={$selectionB}
+        selected={$selectionB}
         counts={$mappingCounts.target}
+        noMatchCodes={$mappingCounts.noMatchTarget}
+        onToggle={(code) => toggleSelection(selectionB, code)}
+        onClear={() => clearSelection(selectionB)}
+        onHover={(code) => hoverB.set(code)}
+        onSelectUnmapped={(codes) => addToSelection(selectionB, codes)}
       />
     </section>
   </main>

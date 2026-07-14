@@ -1,15 +1,11 @@
 <script>
-  import { createEventDispatcher } from 'svelte';
+  let { label = 'Upload CSV', hint = '', onFile } = $props();
 
-  export let label = 'Upload CSV';
-  export let hint = '';
-
-  const dispatch = createEventDispatcher();
-  let dragging = false;
+  let dragging = $state(false);
   let inputEl;
 
   function emit(file) {
-    if (file) dispatch('file', file);
+    if (file) onFile?.(file);
   }
 
   function onInputChange(e) {
@@ -29,11 +25,14 @@
   class:dragging
   role="button"
   tabindex="0"
-  on:click={() => inputEl.click()}
-  on:keydown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), inputEl.click())}
-  on:dragover|preventDefault={() => (dragging = true)}
-  on:dragleave={() => (dragging = false)}
-  on:drop={onDrop}
+  onclick={() => inputEl.click()}
+  onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), inputEl.click())}
+  ondragover={(e) => {
+    e.preventDefault();
+    dragging = true;
+  }}
+  ondragleave={() => (dragging = false)}
+  ondrop={onDrop}
 >
   <svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true">
     <path
@@ -48,7 +47,7 @@
   <div class="label">{label}</div>
   <div class="hint">Drag &amp; drop or click to choose a .csv file</div>
   {#if hint}<div class="hint muted">{hint}</div>{/if}
-  <input bind:this={inputEl} type="file" accept=".csv,text/csv" on:change={onInputChange} hidden />
+  <input bind:this={inputEl} type="file" accept=".csv,text/csv" onchange={onInputChange} hidden />
 </div>
 
 <style>

@@ -11,26 +11,44 @@
   import {
     buildCrosswalkRows,
     crosswalkToCsv,
+    buildSourceToNameRows,
+    sourceToNameCsv,
+    buildNameToTargetRows,
+    nameToTargetCsv,
     downloadFile,
     readFileText,
   } from '../lib/crosswalk.js';
 
-  export let mappingCount = 0;
+  let { mappingCount = 0 } = $props();
 
   let importEl;
-  let message = '';
+  let message = $state('');
+  let exportMode = $state('single'); // 'single' (N×N in one file) | 'split' (many-to-one + one-to-many)
 
   function stamp() {
     return new Date().toISOString().slice(0, 10);
   }
 
-  function exportCsv() {
-    const rows = buildCrosswalkRows(get(mappings), get(systemA), get(systemB));
-    if (!rows.length) {
+  async function exportCsv() {
+    const groups = get(mappings);
+    if (!groups.length) {
       flash('Nothing to export yet.');
       return;
     }
-    downloadFile(`crosswalk-${stamp()}.csv`, crosswalkToCsv(rows), 'text/csv');
+    const a = get(systemA);
+    const b = get(systemB);
+    if (exportMode === 'single') {
+      const rows = buildCrosswalkRows(groups, a, b);
+      downloadFile(`crosswalk-${stamp()}.csv`, crosswalkToCsv(rows), 'text/csv');
+    } else {
+      const sourceRows = buildSourceToNameRows(groups, a);
+      const targetRows = buildNameToTargetRows(groups, b);
+      downloadFile(`crosswalk-source-to-name-${stamp()}.csv`, sourceToNameCsv(sourceRows), 'text/csv');
+      // Two downloads triggered back-to-back in the same tick can be coalesced by the
+      // browser into a single download event; a tick's gap keeps them distinct.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      downloadFile(`crosswalk-name-to-target-${stamp()}.csv`, nameToTargetCsv(targetRows), 'text/csv');
+    }
   }
 
   function saveProject() {
@@ -74,15 +92,23 @@
 
   <div class="actions">
     {#if message}<span class="msg" aria-live="polite">{message}</span>{/if}
-    <button on:click={exportCsv} disabled={mappingCount === 0} title="Download the crosswalk as CSV">
+    <select
+      bind:value={exportMode}
+      aria-label="Export format"
+      title="Single file: full N×N cross-product per mapping. Two files: source→name and name→target."
+    >
+      <option value="single">Export: one CSV (N×N)</option>
+      <option value="split">Export: two CSVs (source→name, name→target)</option>
+    </select>
+    <button onclick={exportCsv} disabled={mappingCount === 0} title="Download the crosswalk as CSV">
       Export CSV
     </button>
-    <button on:click={saveProject} title="Save systems + mappings as a reloadable JSON file">
+    <button onclick={saveProject} title="Save systems + mappings as a reloadable JSON file">
       Save project
     </button>
-    <button on:click={() => importEl.click()} title="Load a saved project JSON">Load project</button>
-    <button class="danger" on:click={onClear} title="Remove everything">Clear</button>
-    <input bind:this={importEl} type="file" accept=".json,application/json" on:change={onImport} hidden />
+    <button onclick={() => importEl.click()} title="Load a saved project JSON">Load project</button>
+    <button class="danger" onclick={onClear} title="Remove everything">Clear</button>
+    <input bind:this={importEl} type="file" accept=".json,application/json" onchange={onImport} hidden />
   </div>
 </div>
 

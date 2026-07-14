@@ -1,24 +1,34 @@
 <script>
-  import { createEventDispatcher } from 'svelte';
   import { guessColumns } from '../lib/csv.js';
 
-  export let fileName = '';
-  export let fields = [];
-  export let rows = [];
+  let { fileName = '', fields = [], rows = [], onConfirm, onCancel } = $props();
 
-  const dispatch = createEventDispatcher();
-
+  // Intentionally a one-time snapshot at mount (matches Svelte 4 behavior): this
+  // component is destroyed/recreated whenever a new file is uploaded, so `fields`
+  // and `rows` never change during its lifetime.
+  // svelte-ignore state_referenced_locally
   const guess = guessColumns(fields, rows);
-  let levelCol = guess.level ?? '';
-  let codeCol = guess.code ?? '';
-  let descCol = guess.description ?? '';
+  let levelMode = $state('column'); // 'column' | 'auto'
+  let levelCol = $state(guess.level ?? '');
+  let codeCol = $state(guess.code ?? '');
+  let titleCol = $state(guess.title ?? '');
+  let descCol = $state(''); // optional long-form description, not guessed
+  let autoParents = $state(false); // auto mode only: synthesize missing ancestor codes
 
-  $: canContinue = levelCol && codeCol && descCol;
-  $: preview = rows.slice(0, 5);
+  let canContinue = $derived(codeCol && titleCol && (levelMode === 'auto' || levelCol));
+  let preview = $derived(rows.slice(0, 5));
 
   function confirm() {
     if (!canContinue) return;
-    dispatch('confirm', { colMap: { level: levelCol, code: codeCol, description: descCol } });
+    const colMap = { code: codeCol, title: titleCol, description: descCol || null };
+    if (levelMode === 'auto') {
+      colMap.level = null;
+      colMap.autoLevel = true;
+      colMap.autoParents = autoParents;
+    } else {
+      colMap.level = levelCol;
+    }
+    onConfirm?.(colMap);
   }
 </script>
 
@@ -28,14 +38,32 @@
     (an integer per row indicating hierarchy depth) is required.
   </p>
 
-  <div class="fields">
-    <label>
-      <span>Level column <em>(required)</em></span>
-      <select bind:value={levelCol}>
-        <option value="">— select —</option>
-        {#each fields as f}<option value={f}>{f}</option>{/each}
-      </select>
+  <div class="level-mode">
+    <label class="radio">
+      <input type="radio" name="levelMode" value="column" bind:group={levelMode} />
+      Specify level column
     </label>
+    <label class="radio">
+      <input type="radio" name="levelMode" value="auto" bind:group={levelMode} />
+      Auto-detect level from code
+    </label>
+  </div>
+
+  <div class="fields">
+    {#if levelMode === 'column'}
+      <label>
+        <span>Level column <em>(required)</em></span>
+        <select bind:value={levelCol}>
+          <option value="">— select —</option>
+          {#each fields as f}<option value={f}>{f}</option>{/each}
+        </select>
+      </label>
+    {:else}
+      <label class="checkbox">
+        <input type="checkbox" bind:checked={autoParents} />
+        Automatically create missing parent codes (e.g. synthesize "01" if only "01.a"/"01.b" exist)
+      </label>
+    {/if}
     <label>
       <span>Code column</span>
       <select bind:value={codeCol}>
@@ -44,9 +72,16 @@
       </select>
     </label>
     <label>
-      <span>Description column</span>
-      <select bind:value={descCol}>
+      <span>Title column</span>
+      <select bind:value={titleCol}>
         <option value="">— select —</option>
+        {#each fields as f}<option value={f}>{f}</option>{/each}
+      </select>
+    </label>
+    <label>
+      <span>Description column <em>(optional)</em></span>
+      <select bind:value={descCol}>
+        <option value="">— none —</option>
         {#each fields as f}<option value={f}>{f}</option>{/each}
       </select>
     </label>
@@ -58,11 +93,12 @@
         <thead>
           <tr>
             {#each fields as f}
-              <th class:sel={f === levelCol || f === codeCol || f === descCol}>
+              <th class:sel={f === levelCol || f === codeCol || f === titleCol || f === descCol}>
                 {f}
                 {#if f === levelCol}<span class="tag">level</span>{/if}
                 {#if f === codeCol}<span class="tag">code</span>{/if}
-                {#if f === descCol}<span class="tag">desc</span>{/if}
+                {#if f === titleCol}<span class="tag">title</span>{/if}
+                {#if f === descCol}<span class="tag">description</span>{/if}
               </th>
             {/each}
           </tr>
@@ -79,8 +115,8 @@
   {/if}
 
   <div class="actions">
-    <button class="ghost" on:click={() => dispatch('cancel')}>Cancel</button>
-    <button class="primary" disabled={!canContinue} on:click={confirm}>
+    <button class="ghost" onclick={() => onCancel?.()}>Cancel</button>
+    <button class="primary" disabled={!canContinue} onclick={confirm}>
       Build hierarchy
     </button>
   </div>
@@ -94,6 +130,18 @@
     margin: 0 0 12px;
     color: var(--text-muted);
   }
+  .level-mode {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 10px;
+    font-size: 12px;
+  }
+  .level-mode .radio {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    cursor: pointer;
+  }
   .fields {
     display: grid;
     gap: 10px;
@@ -104,6 +152,13 @@
     gap: 4px;
     font-size: 12px;
     color: var(--text-muted);
+  }
+  label.checkbox {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
   }
   label em {
     color: var(--accent);

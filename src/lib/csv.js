@@ -33,15 +33,16 @@ export function parseCsv(input) {
 }
 
 /**
- * Heuristically guess which columns hold the level, code, and description.
- * Returns best-guess field names (may be null if no columns).
+ * Heuristically guess which columns hold the level, code, and title. The
+ * (optional, longer-form) description column is not guessed — it's left for
+ * the user to pick explicitly since most files don't have one.
  *
  * @param {string[]} fields
  * @param {Record<string,string>[]} rows
- * @returns {{ level: string|null, code: string|null, description: string|null }}
+ * @returns {{ level: string|null, code: string|null, title: string|null }}
  */
 export function guessColumns(fields, rows) {
-  if (!fields.length) return { level: null, code: null, description: null };
+  if (!fields.length) return { level: null, code: null, title: null };
 
   const sample = rows.slice(0, 200);
   const stats = fields.map((f) => {
@@ -90,15 +91,15 @@ export function guessColumns(fields, rows) {
     return score;
   });
 
-  // Description: longest average text, not the code/level column.
-  const description = pickBest(stats, (s) => {
+  // Title: longest average text, not the code/level column.
+  const title = pickBest(stats, (s) => {
     if (s.field === level || s.field === code) return -1;
     let score = s.avgLen;
     if (/desc|title|name|label|text/i.test(s.field)) score += 100;
     return score;
   });
 
-  return { level, code, description };
+  return { level, code, title };
 }
 
 function pickBest(stats, scoreFn) {

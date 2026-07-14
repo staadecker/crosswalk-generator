@@ -1,37 +1,116 @@
 <script>
-  import { RELATIONS, relationMeta, updateMapping, removeMapping } from '../lib/stores.js';
+  import {
+    renameGroup,
+    updateGroupNote,
+    removeMapping,
+    removeCodesFromGroup,
+    addCodesToGroup,
+    isNoMatch,
+    hoverA,
+    hoverB,
+  } from '../lib/stores.js';
+  import { compactCodes, expandToLeaves } from '../lib/hierarchy.js';
 
-  export let mappings = [];
-  export let systemA = null;
-  export let systemB = null;
-  export let selectionA = null;
-  export let selectionB = null;
+  let {
+    mappings = [],
+    systemA = null,
+    systemB = null,
+    selectionA = new Set(),
+    selectionB = new Set(),
+  } = $props();
 
-  let filterToSelection = false;
+  let filterToSelection = $state(false);
+  let dragOverKey = $state(null); // `${groupId}:${side}` currently being dragged over
+  let flash = $state('');
 
-  $: aByCode = systemA?.tree.byCode ?? new Map();
-  $: bByCode = systemB?.tree.byCode ?? new Map();
+  function say(msg) {
+    flash = msg;
+    setTimeout(() => (flash = ''), 2600);
+  }
 
-  $: visible = mappings
-    .map((m) => ({
-      ...m,
-      sourceDesc: aByCode.get(m.sourceCode)?.description ?? '',
-      targetDesc: bByCode.get(m.targetCode)?.description ?? '',
-    }))
-    .filter((m) => {
+  let aByCode = $derived(systemA?.tree.byCode ?? new Map());
+  let bByCode = $derived(systemB?.tree.byCode ?? new Map());
+
+  // Compact a group's leaf codes down to display "bubbles": a bubble may stand in
+  // for a whole parent's worth of leaves (see compactCodes) — removing it removes
+  // every leaf it covers.
+  function bubbles(system, byCode, leafCodes) {
+    if (!leafCodes.length) return [];
+    const displayCodes = system ? compactCodes(system.tree, new Set(leafCodes)) : [...leafCodes];
+    return displayCodes.map((code) => {
+      const node = byCode.get(code);
+      return {
+        code,
+        tooltip: node?.description || node?.title || '',
+        leaves: system ? [...expandToLeaves(system.tree, [code])] : [code],
+      };
+    });
+  }
+
+  let rows = $derived(
+    mappings.map((g) => ({
+      ...g,
+      noMatch: isNoMatch(g),
+      sourceBubbles: bubbles(systemA, aByCode, g.sourceLeafCodes),
+      targetBubbles: bubbles(systemB, bByCode, g.targetLeafCodes),
+    })),
+  );
+
+  let visible = $derived(
+    rows.filter((g) => {
       if (!filterToSelection) return true;
       return (
-        (selectionA && m.sourceCode === selectionA) ||
-        (selectionB && m.targetCode === selectionB)
+        g.sourceLeafCodes.some((c) => selectionA.has(c)) || g.targetLeafCodes.some((c) => selectionB.has(c))
       );
-    });
+    }),
+  );
 
-  $: hasSelection = Boolean(selectionA || selectionB);
+  let hasSelection = $derived(selectionA.size > 0 || selectionB.size > 0);
+
+  // A group is highlighted while the code currently hovered in either tree panel
+  // belongs to it.
+  let highlightedIds = $derived.by(() => {
+    const hA = $hoverA;
+    const hB = $hoverB;
+    const ids = new Set();
+    if (!hA && !hB) return ids;
+    for (const g of mappings) {
+      if ((hA && g.sourceLeafCodes.includes(hA)) || (hB && g.targetLeafCodes.includes(hB))) {
+        ids.add(g.id);
+      }
+    }
+    return ids;
+  });
+
+  function removeBubble(groupId, side, bubble) {
+    removeCodesFromGroup(groupId, side, bubble.leaves);
+  }
+
+  function allowDrop(e, key) {
+    e.preventDefault();
+    dragOverKey = key;
+  }
+
+  function handleDrop(e, groupId, side) {
+    e.preventDefault();
+    dragOverKey = null;
+    const code = e.dataTransfer.getData('text/plain');
+    const originSide = e.dataTransfer.getData('application/x-crosswalk-side');
+    const expectedSide = side === 'source' ? 'A' : 'B';
+    if (!code || originSide !== expectedSide) return;
+    const system = side === 'source' ? systemA : systemB;
+    const leaves = system ? [...expandToLeaves(system.tree, [code])] : [code];
+    const { skipped } = addCodesToGroup(groupId, side, leaves);
+    if (skipped.length) {
+      say(`${skipped.length} code${skipped.length === 1 ? '' : 's'} skipped — already mapped elsewhere.`);
+    }
+  }
 </script>
 
 <div class="list">
   <header>
     <h3>Mappings <span class="count">{mappings.length}</span></h3>
+    {#if flash}<span class="flash" aria-live="polite">{flash}</span>{/if}
     {#if hasSelection}
       <label class="filter">
         <input type="checkbox" bind:checked={filterToSelection} />
@@ -42,35 +121,83 @@
 
   <div class="rows">
     {#if mappings.length === 0}
-      <p class="empty">No mappings yet. Select a code on each side and click <strong>Link</strong>.</p>
+      <p class="empty">No mappings yet. Click codes on each side, then <strong>Link</strong> them.</p>
     {:else if visible.length === 0}
       <p class="empty">No mappings touch the current selection.</p>
     {:else}
       {#each visible as m (m.id)}
-        {@const meta = relationMeta(m.relation)}
-        <div class="row">
+        <div class="row" class:nomatch={m.noMatch} class:highlighted={highlightedIds.has(m.id)}>
+          <div class="row-head">
+            <input
+              class="name-input"
+              value={m.name}
+              aria-label="Mapping name"
+              onchange={(e) => renameGroup(m.id, e.target.value)}
+            />
+            <button class="danger" title="Remove this whole mapping" onclick={() => removeMapping(m.id)}>✕</button>
+          </div>
           <div class="pair">
-            <div class="side">
-              <span class="code">{m.sourceCode}</span>
-              <span class="d" title={m.sourceDesc}>{m.sourceDesc}</span>
-            </div>
-            <span class="rel" title={meta.label}>{meta.symbol}</span>
-            <div class="side">
-              <span class="code">{m.targetCode}</span>
-              <span class="d" title={m.targetDesc}>{m.targetDesc}</span>
-            </div>
-          </div>
-          <div class="row-controls">
-            <select
-              aria-label="Relationship for {m.sourceCode} to {m.targetCode}"
-              value={m.relation}
-              on:change={(e) => updateMapping(m.id, { relation: e.target.value })}
+            <div
+              class="side"
+              class:drag-over={dragOverKey === `${m.id}:source`}
+              role="group"
+              aria-label="Source codes for {m.name}"
+              ondragover={(e) => allowDrop(e, `${m.id}:source`)}
+              ondragleave={() => (dragOverKey = null)}
+              ondrop={(e) => handleDrop(e, m.id, 'source')}
             >
-              {#each RELATIONS as r}<option value={r.value}>{r.symbol} {r.label}</option>{/each}
-            </select>
-            <button class="danger" title="Remove" on:click={() => removeMapping(m.id)}>✕</button>
+              {#if m.sourceBubbles.length}
+                {#each m.sourceBubbles as b (b.code)}
+                  <span class="bubble" title={b.tooltip}>
+                    <span class="bubble-code">{b.code}</span>
+                    <button
+                      class="bubble-x"
+                      aria-label="Remove {b.code} from {m.name}"
+                      onclick={() => removeBubble(m.id, 'source', b)}
+                    >
+                      ✕
+                    </button>
+                  </span>
+                {/each}
+              {:else}
+                <span class="none">— (no match) — drop a source code here</span>
+              {/if}
+            </div>
+            <span class="rel" aria-hidden="true">→</span>
+            <div
+              class="side"
+              class:drag-over={dragOverKey === `${m.id}:target`}
+              role="group"
+              aria-label="Target codes for {m.name}"
+              ondragover={(e) => allowDrop(e, `${m.id}:target`)}
+              ondragleave={() => (dragOverKey = null)}
+              ondrop={(e) => handleDrop(e, m.id, 'target')}
+            >
+              {#if m.targetBubbles.length}
+                {#each m.targetBubbles as b (b.code)}
+                  <span class="bubble" title={b.tooltip}>
+                    <span class="bubble-code">{b.code}</span>
+                    <button
+                      class="bubble-x"
+                      aria-label="Remove {b.code} from {m.name}"
+                      onclick={() => removeBubble(m.id, 'target', b)}
+                    >
+                      ✕
+                    </button>
+                  </span>
+                {/each}
+              {:else}
+                <span class="none">— (no match) — drop a target code here</span>
+              {/if}
+            </div>
           </div>
-          {#if m.note}<div class="note">{m.note}</div>{/if}
+          <input
+            class="note-input"
+            placeholder="Add a note…"
+            value={m.note}
+            aria-label="Note for {m.name}"
+            onchange={(e) => updateGroupNote(m.id, e.target.value)}
+          />
         </div>
       {/each}
     {/if}
@@ -118,6 +245,11 @@
     align-items: center;
     gap: 4px;
   }
+  .flash {
+    font-size: 11px;
+    color: var(--accent);
+    font-weight: 600;
+  }
   .rows {
     overflow: auto;
     flex: 1;
@@ -132,51 +264,99 @@
   .row {
     padding: 8px 12px;
     border-bottom: 1px solid var(--border);
+    border-left: 3px solid transparent;
     display: grid;
     gap: 6px;
+  }
+  .row.highlighted {
+    border-left-color: var(--accent);
+    background: var(--accent-soft);
+  }
+  .row-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .name-input {
+    flex: 1;
+    min-width: 0;
+    font-weight: 600;
+    font-size: 12px;
+    padding: 4px 6px;
   }
   .pair {
     display: grid;
     grid-template-columns: 1fr auto 1fr;
     gap: 8px;
-    align-items: center;
+    align-items: start;
   }
   .side {
     display: flex;
-    flex-direction: column;
+    flex-wrap: wrap;
+    gap: 4px;
     min-width: 0;
+    min-height: 26px;
+    border: 1px dashed transparent;
+    border-radius: var(--radius-sm);
+    padding: 2px;
   }
-  .code {
-    font-family: ui-monospace, Menlo, Consolas, monospace;
-    font-weight: 600;
+  .side.drag-over {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+  .bubble {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1px 4px 1px 8px;
     font-size: 12px;
   }
-  .d {
-    font-size: 11px;
+  .bubble-code {
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-weight: 600;
+  }
+  .bubble-x {
+    border: none;
+    background: none;
+    padding: 0 2px;
     color: var(--text-muted);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    font-size: 11px;
+    line-height: 1;
+  }
+  .bubble-x:hover {
+    color: var(--danger);
+    background: none;
   }
   .rel {
     color: var(--accent);
     font-weight: 700;
     text-align: center;
   }
-  .row-controls {
-    display: flex;
-    gap: 6px;
-    align-items: center;
-  }
-  .row-controls select {
-    flex: 1;
-    min-width: 0;
-    font-size: 12px;
-    padding: 4px 6px;
-  }
-  .note {
-    font-size: 12px;
+  .none {
     color: var(--text-muted);
     font-style: italic;
+    font-size: 11px;
+  }
+  .row.nomatch {
+    background: color-mix(in srgb, var(--text-muted) 6%, transparent);
+  }
+  .row.nomatch.highlighted {
+    background: var(--accent-soft);
+  }
+  .note-input {
+    font-size: 12px;
+    font-style: italic;
+    padding: 3px 6px;
+    color: var(--text-muted);
+    background: transparent;
+    border-color: transparent;
+  }
+  .note-input:hover,
+  .note-input:focus {
+    background: var(--surface);
+    border-color: var(--border);
   }
 </style>

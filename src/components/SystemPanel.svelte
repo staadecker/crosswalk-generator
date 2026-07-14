@@ -5,27 +5,35 @@
   import { parseCsv } from '../lib/csv.js';
   import { makeSystem } from '../lib/stores.js';
 
-  export let system = null;        // bound system object (or null)
-  export let selectedCode = null;  // bound selection
-  export let counts = new Map();
-  export let accent = 'A';
-  export let title = 'System';
+  let {
+    system = $bindable(null), // bound system object (or null)
+    selected = new Set(), // selection Set for this side
+    counts = new Map(),
+    noMatchCodes = new Set(),
+    accent = 'A',
+    title = 'System',
+    sampleFile = null, // e.g. 'naics-sample.csv' — offers a "try sample data" shortcut
+    onToggle,
+    onClear,
+    onHover,
+    onSelectUnmapped,
+  } = $props();
 
   // Local flow state: 'idle' -> 'mapping' once a file is parsed.
-  let phase = 'idle';
-  let parsed = null; // { fileName, fields, rows }
-  let error = '';
-  let loading = false;
+  let phase = $state('idle');
+  let parsed = $state(null); // { fileName, fields, rows }
+  let error = $state('');
+  let loading = $state(false);
 
-  async function onFile(file) {
+  async function parseAndStage(fileName, input) {
     error = '';
     loading = true;
     try {
-      const { fields, rows } = await parseCsv(file);
+      const { fields, rows } = await parseCsv(input);
       if (!fields.length || !rows.length) {
         error = 'That file has no readable rows.';
       } else {
-        parsed = { fileName: file.name, fields, rows };
+        parsed = { fileName, fields, rows };
         phase = 'mapping';
       }
     } catch (e) {
@@ -35,9 +43,27 @@
     }
   }
 
+  function onFile(file) {
+    return parseAndStage(file.name, file);
+  }
+
+  async function loadSample() {
+    error = '';
+    loading = true;
+    try {
+      const res = await fetch(`${import.meta.env.BASE_URL}samples/${sampleFile}`);
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      const text = await res.text();
+      await parseAndStage(sampleFile, text);
+    } catch (e) {
+      loading = false;
+      error = `Could not load sample data: ${e.message ?? e}`;
+    }
+  }
+
   function onConfirm(colMap) {
     system = makeSystem(parsed.fileName.replace(/\.csv$/i, ''), parsed.rows, colMap);
-    selectedCode = null;
+    onClear?.();
     phase = 'idle';
     parsed = null;
   }
@@ -49,7 +75,7 @@
 
   function changeFile() {
     system = null;
-    selectedCode = null;
+    onClear?.();
     phase = 'idle';
     parsed = null;
   }
@@ -58,11 +84,15 @@
 {#if system}
   <TreePanel
     {system}
-    {selectedCode}
+    {selected}
     {counts}
+    {noMatchCodes}
     {accent}
-    on:select={(e) => (selectedCode = e.detail)}
-    on:change={changeFile}
+    {onToggle}
+    {onClear}
+    {onHover}
+    {onSelectUnmapped}
+    onChange={changeFile}
   />
 {:else}
   <div class="setup" data-accent={accent}>
@@ -70,9 +100,14 @@
     {#if phase === 'idle'}
       <FileUpload
         label={`Upload ${title} CSV`}
-        hint="Must include level, code, and description columns."
-        on:file={(e) => onFile(e.detail)}
+        hint="Must include level, code, and title columns. A description column is optional."
+        {onFile}
       />
+      {#if sampleFile}
+        <button class="ghost small sample-btn" onclick={loadSample} disabled={loading}>
+          Try with sample data
+        </button>
+      {/if}
       {#if loading}<p class="status">Parsing…</p>{/if}
       {#if error}<p class="status error">{error}</p>{/if}
     {:else if phase === 'mapping'}
@@ -80,8 +115,8 @@
         fileName={parsed.fileName}
         fields={parsed.fields}
         rows={parsed.rows}
-        on:confirm={(e) => onConfirm(e.detail.colMap)}
-        on:cancel={cancelMapping}
+        {onConfirm}
+        onCancel={cancelMapping}
       />
     {/if}
   </div>
@@ -110,5 +145,8 @@
   }
   .status.error {
     color: var(--danger);
+  }
+  .sample-btn {
+    align-self: center;
   }
 </style>
