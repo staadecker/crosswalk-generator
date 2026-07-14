@@ -80,6 +80,14 @@ npm test              # logic tests + Playwright e2e
 
 `npm`/`node` may need `nvm use` first if not already on PATH.
 
+## Git workflow
+
+- Never create a git commit without the user's explicit go-ahead for that
+  specific commit. A broader request ("merge this in", "clean up X") is not
+  itself permission to commit — propose the change, then ask before
+  committing, even in contexts (e.g. background/autonomous sessions) where
+  the default behavior would be to commit and ship without stopping to ask.
+
 ## Conventions
 
 - Don't use git worktrees in this repo — work directly in the main checkout.
