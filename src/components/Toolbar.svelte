@@ -11,10 +11,10 @@
   import {
     buildCrosswalkRows,
     crosswalkToCsv,
-    buildSourceToNameRows,
-    sourceToNameCsv,
-    buildNameToTargetRows,
-    nameToTargetCsv,
+    buildAToNameRows,
+    aToNameCsv,
+    buildNameToBRows,
+    nameToBCsv,
     downloadFile,
     downloadBlob,
     readFileText,
@@ -39,19 +39,19 @@
       .replace(/^-+|-+$/g, '');
   }
 
-  /** "<source>-to-<target>" (or a generic fallback) for export filenames. */
+  /** "<a>-to-<b>" (or a generic fallback) for export filenames. */
   function pairSlug(a, b) {
     const sa = slug(a?.name);
     const sb = slug(b?.name);
     if (!sa && !sb) return 'crosswalk';
-    return `${sa || 'source'}-to-${sb || 'target'}`;
+    return `${sa || 'a'}-to-${sb || 'b'}`;
   }
 
   // One export button, one download: a zip bundling all three crosswalk
   // representations (the N×N cross-product, plus the two normalized
-  // source→name / name→target files) — no format dropdown to choose between,
-  // and no browser multiple-automatic-download blocking to work around since
-  // it's a single file.
+  // A→name / name→B files) — no format dropdown to choose between, and no
+  // browser multiple-automatic-download blocking to work around since it's a
+  // single file.
   function exportCsv() {
     const groups = get(mappings);
     if (!groups.length) {
@@ -64,8 +64,8 @@
     const crosswalkCsv = crosswalkToCsv(buildCrosswalkRows(groups, a, b));
     const zip = buildZip([
       { name: 'crosswalk.csv', content: crosswalkCsv },
-      { name: 'source-to-name.csv', content: sourceToNameCsv(buildSourceToNameRows(groups, a)) },
-      { name: 'name-to-target.csv', content: nameToTargetCsv(buildNameToTargetRows(groups, b)) },
+      { name: 'a-to-name.csv', content: aToNameCsv(buildAToNameRows(groups, a)) },
+      { name: 'name-to-b.csv', content: nameToBCsv(buildNameToBRows(groups, b)) },
     ]);
     downloadBlob(`${pair}-crosswalk-${stamp()}.zip`, zip);
   }
@@ -115,7 +115,7 @@
     <button
       onclick={exportCsv}
       disabled={mappingCount === 0}
-      title="Download a .zip with the full crosswalk (N×N), plus source→name and name→target CSVs"
+      title="Download a .zip with the full crosswalk (N×N), plus A→name and name→B CSVs"
     >
       Export crosswalk (.zip)
     </button>

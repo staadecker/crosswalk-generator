@@ -1,7 +1,7 @@
 import { writable, derived, get } from 'svelte/store';
-import { buildHierarchy, buildAutoHierarchy } from './hierarchy.js';
+import { buildHierarchy, buildAutoHierarchy, compactCodes } from './hierarchy.js';
 
-const STORAGE_KEY = 'crosswalk-generator:v1';
+const STORAGE_KEY = 'crosswalk-generator:v2';
 
 /**
  * True when a mapping group has no counterpart on one side — either because it
@@ -10,7 +10,7 @@ const STORAGE_KEY = 'crosswalk-generator:v1';
  * least one side to exist at all (see removeCodesFromGroup).
  */
 export function isNoMatch(g) {
-  return g.sourceLeafCodes.length === 0 || g.targetLeafCodes.length === 0;
+  return g.aLeafCodes.length === 0 || g.bLeafCodes.length === 0;
 }
 
 /**
@@ -22,7 +22,7 @@ export const systemB = writable(null);
 
 /**
  * Mapping groups: array of
- *   { id, name, sourceLeafCodes: string[], targetLeafCodes: string[], note }.
+ *   { id, name, aLeafCodes: string[], bLeafCodes: string[], note }.
  * Both code arrays hold only *leaf* codes (see expandToLeaves in hierarchy.js)
  * — parent codes are for navigation only and never stored directly. A group
  * with one side empty (see isNoMatch) represents a "no counterpart" flag
@@ -76,6 +76,18 @@ export function newMappingId() {
 }
 
 /**
+ * Build a readable default group name from the (compacted, for brevity) leaf
+ * codes on one side, joined with semicolons — reuse the single code if
+ * there's just one, else aggregate. Uses codes rather than titles, since a
+ * title can be long/absent and a code is always a stable, compact identifier.
+ */
+export function defaultGroupName(system, leafCodes) {
+  const displayCodes = system ? compactCodes(system.tree, leafCodes) : [...leafCodes];
+  if (displayCodes.length <= 3) return displayCodes.join(';');
+  return `${displayCodes.slice(0, 2).join(';')};+${displayCodes.length - 2} more`;
+}
+
+/**
  * Construct a system object from parsed rows + column mapping.
  */
 export function makeSystem(name, rows, colMap) {
@@ -88,30 +100,30 @@ export function makeSystem(name, rows, colMap) {
 /**
  * Per-leaf-code mapping "weight" (how many groups touch that leaf), aggregated
  * up the tree so ancestor nodes can show how much mapping activity is beneath
- * them. Keyed separately for source (A) and target (B). `noMatchSource(Target)`
- * are the exact leaf codes flagged no-match (not aggregated to ancestors).
+ * them. Keyed separately for A and B. `noMatchA`/`noMatchB` are the exact leaf
+ * codes flagged no-match (not aggregated to ancestors).
  */
 export const mappingCounts = derived([mappings, systemA, systemB], ([$mappings, $systemA, $systemB]) => {
-  const sourceLeaf = new Map();
-  const targetLeaf = new Map();
-  const noMatchSource = new Set();
-  const noMatchTarget = new Set();
+  const aLeaf = new Map();
+  const bLeaf = new Map();
+  const noMatchA = new Set();
+  const noMatchB = new Set();
   for (const g of $mappings) {
     const noMatch = isNoMatch(g);
-    for (const c of g.sourceLeafCodes) {
-      sourceLeaf.set(c, (sourceLeaf.get(c) ?? 0) + 1);
-      if (noMatch) noMatchSource.add(c);
+    for (const c of g.aLeafCodes) {
+      aLeaf.set(c, (aLeaf.get(c) ?? 0) + 1);
+      if (noMatch) noMatchA.add(c);
     }
-    for (const c of g.targetLeafCodes) {
-      targetLeaf.set(c, (targetLeaf.get(c) ?? 0) + 1);
-      if (noMatch) noMatchTarget.add(c);
+    for (const c of g.bLeafCodes) {
+      bLeaf.set(c, (bLeaf.get(c) ?? 0) + 1);
+      if (noMatch) noMatchB.add(c);
     }
   }
   return {
-    source: aggregateCounts($systemA?.tree, sourceLeaf),
-    target: aggregateCounts($systemB?.tree, targetLeaf),
-    noMatchSource,
-    noMatchTarget,
+    a: aggregateCounts($systemA?.tree, aLeaf),
+    b: aggregateCounts($systemB?.tree, bLeaf),
+    noMatchA,
+    noMatchB,
   };
 });
 
@@ -141,7 +153,7 @@ function aggregateCounts(tree, leafCountMap) {
  * other group without flagging its own existing codes as a conflict.
  */
 function codesUsedElsewhere($mappings, side, excludeGroupId) {
-  const key = side === 'source' ? 'sourceLeafCodes' : 'targetLeafCodes';
+  const key = side === 'A' ? 'aLeafCodes' : 'bLeafCodes';
   const used = new Set();
   for (const g of $mappings) {
     if (g.id === excludeGroupId) continue;
@@ -151,61 +163,61 @@ function codesUsedElsewhere($mappings, side, excludeGroupId) {
 }
 
 /**
- * Create one new mapping group linking sourceLeafCodes × targetLeafCodes (both
- * already expanded to leaf codes — see expandToLeaves). Adding a real mapping
- * for a leaf code drops/shrinks any prior no-match group touching that same
- * leaf code (they're contradictory); a no-match group left empty on both
- * sides is dropped entirely.
+ * Create one new mapping group linking aLeafCodes × bLeafCodes (both already
+ * expanded to leaf codes — see expandToLeaves). Adding a real mapping for a
+ * leaf code drops/shrinks any prior no-match group touching that same leaf
+ * code (they're contradictory); a no-match group left empty on both sides is
+ * dropped entirely.
  *
  * When uniqueMappingOnly is on, codes already claimed by another group on the
  * same side are skipped rather than added (reported back so the caller can
  * tell the user).
  *
- * @returns {{ skippedSource: string[], skippedTarget: string[] }}
+ * @returns {{ skippedA: string[], skippedB: string[] }}
  */
-export function addGroup(sourceLeafCodes, targetLeafCodes, name, note = '') {
-  let skippedSource = [];
-  let skippedTarget = [];
+export function addGroup(aLeafCodes, bLeafCodes, name, note = '') {
+  let skippedA = [];
+  let skippedB = [];
   mappings.update(($m) => {
-    let srcCodes = [...new Set(sourceLeafCodes)];
-    let tgtCodes = [...new Set(targetLeafCodes)];
+    let aCodes = [...new Set(aLeafCodes)];
+    let bCodes = [...new Set(bLeafCodes)];
     if (get(uniqueMappingOnly)) {
-      const usedSrc = codesUsedElsewhere($m, 'source', null);
-      const usedTgt = codesUsedElsewhere($m, 'target', null);
-      skippedSource = srcCodes.filter((c) => usedSrc.has(c));
-      skippedTarget = tgtCodes.filter((c) => usedTgt.has(c));
-      srcCodes = srcCodes.filter((c) => !usedSrc.has(c));
-      tgtCodes = tgtCodes.filter((c) => !usedTgt.has(c));
+      const usedA = codesUsedElsewhere($m, 'A', null);
+      const usedB = codesUsedElsewhere($m, 'B', null);
+      skippedA = aCodes.filter((c) => usedA.has(c));
+      skippedB = bCodes.filter((c) => usedB.has(c));
+      aCodes = aCodes.filter((c) => !usedA.has(c));
+      bCodes = bCodes.filter((c) => !usedB.has(c));
     }
-    if (!srcCodes.length && !tgtCodes.length) return $m;
-    const srcSet = new Set(srcCodes);
-    const tgtSet = new Set(tgtCodes);
+    if (!aCodes.length && !bCodes.length) return $m;
+    const aSet = new Set(aCodes);
+    const bSet = new Set(bCodes);
     const next = $m
       .map((g) => {
         if (!isNoMatch(g)) return g;
         return {
           ...g,
-          sourceLeafCodes: g.sourceLeafCodes.filter((c) => !srcSet.has(c)),
-          targetLeafCodes: g.targetLeafCodes.filter((c) => !tgtSet.has(c)),
+          aLeafCodes: g.aLeafCodes.filter((c) => !aSet.has(c)),
+          bLeafCodes: g.bLeafCodes.filter((c) => !bSet.has(c)),
         };
       })
-      .filter((g) => g.sourceLeafCodes.length || g.targetLeafCodes.length);
+      .filter((g) => g.aLeafCodes.length || g.bLeafCodes.length);
     const group = {
       id: newMappingId(),
       name,
-      sourceLeafCodes: srcCodes,
-      targetLeafCodes: tgtCodes,
+      aLeafCodes: aCodes,
+      bLeafCodes: bCodes,
       note,
     };
     return [...next, group];
   });
-  return { skippedSource, skippedTarget };
+  return { skippedA, skippedB };
 }
 
 /**
  * Flag leaf codes on one side as having no counterpart, as a single new group.
  * Skips codes that already belong to any existing group (real or no-match).
- * @param {'source'|'target'} side
+ * @param {'A'|'B'} side
  * @returns {{ added: number, skipped: number }}
  */
 export function markNoMatch(side, leafCodes, name, note = '') {
@@ -214,7 +226,7 @@ export function markNoMatch(side, leafCodes, name, note = '') {
   mappings.update(($m) => {
     const eligible = [];
     for (const code of leafCodes) {
-      const already = $m.some((g) => g.sourceLeafCodes.includes(code) || g.targetLeafCodes.includes(code));
+      const already = $m.some((g) => g.aLeafCodes.includes(code) || g.bLeafCodes.includes(code));
       if (already) {
         skipped++;
         continue;
@@ -226,8 +238,8 @@ export function markNoMatch(side, leafCodes, name, note = '') {
     const group = {
       id: newMappingId(),
       name: name ?? (eligible.length === 1 ? eligible[0] : `${eligible.length} codes`),
-      sourceLeafCodes: side === 'source' ? eligible : [],
-      targetLeafCodes: side === 'target' ? eligible : [],
+      aLeafCodes: side === 'A' ? eligible : [],
+      bLeafCodes: side === 'B' ? eligible : [],
       note,
     };
     return [...$m, group];
@@ -244,15 +256,15 @@ export function updateGroupNote(id, note) {
 }
 
 /**
- * Add leaf codes to an existing group's source or target side (e.g.
- * drag-and-drop). When uniqueMappingOnly is on, codes already claimed by a
- * *different* group on that same side are skipped (adding a code already in
- * *this* group is always a harmless no-op, not a conflict).
+ * Add leaf codes to an existing group's A or B side (e.g. drag-and-drop). When
+ * uniqueMappingOnly is on, codes already claimed by a *different* group on
+ * that same side are skipped (adding a code already in *this* group is always
+ * a harmless no-op, not a conflict).
  *
  * @returns {{ skipped: string[] }}
  */
 export function addCodesToGroup(id, side, leafCodes) {
-  const key = side === 'source' ? 'sourceLeafCodes' : 'targetLeafCodes';
+  const key = side === 'A' ? 'aLeafCodes' : 'bLeafCodes';
   let skipped = [];
   mappings.update(($m) => {
     const used = get(uniqueMappingOnly) ? codesUsedElsewhere($m, side, id) : null;
@@ -280,7 +292,7 @@ export function addCodesToGroup(id, side, leafCodes) {
  */
 export function removeCodesFromGroup(id, side, leafCodes) {
   const toRemove = new Set(leafCodes);
-  const key = side === 'source' ? 'sourceLeafCodes' : 'targetLeafCodes';
+  const key = side === 'A' ? 'aLeafCodes' : 'bLeafCodes';
   mappings.update(($m) => {
     const next = [];
     for (const g of $m) {
@@ -289,7 +301,7 @@ export function removeCodesFromGroup(id, side, leafCodes) {
         continue;
       }
       const updated = { ...g, [key]: g[key].filter((c) => !toRemove.has(c)) };
-      if (updated.sourceLeafCodes.length || updated.targetLeafCodes.length) next.push(updated);
+      if (updated.aLeafCodes.length || updated.bLeafCodes.length) next.push(updated);
     }
     return next;
   });
@@ -305,11 +317,11 @@ export function removeMapping(id) {
  * group's codes for that side become meaningless once the underlying file
  * (and therefore its codes/tree) is gone. Leaves groups untouched that only
  * ever had codes on the *other* side.
- * @param {'source'|'target'} side
+ * @param {'A'|'B'} side
  * @returns {number} how many groups were deleted
  */
 export function clearMappingsForSide(side) {
-  const key = side === 'source' ? 'sourceLeafCodes' : 'targetLeafCodes';
+  const key = side === 'A' ? 'aLeafCodes' : 'bLeafCodes';
   let removed = 0;
   mappings.update(($m) => {
     const next = $m.filter((g) => g[key].length === 0);

@@ -1,5 +1,6 @@
 <script>
   import { flattenTree, expandToLeaves, leafCodesOf, compactCodes } from '../lib/hierarchy.js';
+  import editIcon from '@material-design-icons/svg/filled/edit.svg?raw';
 
   let {
     system, // { name, tree, colMap, rows }
@@ -19,6 +20,18 @@
   let query = $state('');
   let expanded = $state(new Set());
   let allExpanded = $state(false);
+  let editingName = $state(false);
+
+  function stopEditName(value) {
+    if (value !== undefined) onRename?.(value.trim() || system.name);
+    editingName = false;
+  }
+
+  /** Focus (and select the text of) an input as soon as it mounts. */
+  function autofocus(node) {
+    node.focus();
+    node.select?.();
+  }
 
   // Default: expand roots so the tree isn't a wall of top-level codes only.
   $effect(() => {
@@ -119,13 +132,30 @@
 <div class="panel" data-accent={accent}>
   <header>
     <div class="titlerow">
-      <input
-        class="name-input"
-        value={system.name}
-        title="Dataset name — also used in exported filenames"
-        aria-label="Dataset name"
-        onchange={(e) => onRename?.(e.target.value.trim() || system.name)}
-      />
+      {#if editingName}
+        <input
+          class="name-input"
+          value={system.name}
+          title="Dataset name — also used in exported filenames"
+          aria-label="Dataset name"
+          use:autofocus
+          onblur={(e) => stopEditName(e.target.value)}
+          onkeydown={(e) => {
+            if (e.key === 'Enter') e.target.blur();
+            else if (e.key === 'Escape') stopEditName();
+          }}
+        />
+      {:else}
+        <span class="name-label" title="Dataset name — also used in exported filenames">{system.name}</span>
+        <button
+          class="icon-btn"
+          title="Rename dataset"
+          aria-label="Rename {system.name}"
+          onclick={() => (editingName = true)}
+        >
+          {@html editIcon}
+        </button>
+      {/if}
       <button
         class="danger small"
         onclick={() => onChange?.()}
@@ -270,8 +300,17 @@
   .titlerow {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 8px;
+    gap: 6px;
+  }
+  .name-label {
+    flex: 1;
+    min-width: 0;
+    font-size: 14px;
+    font-weight: 700;
+    padding: 3px 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .name-input {
     flex: 1;
@@ -279,14 +318,32 @@
     margin: 0;
     font-size: 14px;
     font-weight: 700;
-    padding: 3px 6px;
-    background: transparent;
-    border-color: transparent;
+    padding: 5px 8px;
+    border-radius: var(--radius-sm);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+    border-color: var(--accent);
   }
-  .name-input:hover,
-  .name-input:focus {
-    background: var(--surface);
-    border-color: var(--border);
+  .icon-btn {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: none;
+    padding: 5px;
+    color: var(--text-muted);
+    border-radius: var(--radius-sm);
+    transition: background 0.12s ease, color 0.12s ease;
+  }
+  .icon-btn :global(svg) {
+    width: 14px;
+    height: 14px;
+    fill: currentColor;
+    display: block;
+  }
+  .icon-btn:hover {
+    background: var(--accent-soft);
+    color: var(--accent);
   }
   .controls {
     display: flex;

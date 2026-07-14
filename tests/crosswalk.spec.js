@@ -107,7 +107,7 @@ test('build hierarchies, map codes as groups, persist, and export a crosswalk', 
 
   // --- Rename the group: the name is static text until the edit button opens it
   // for editing (kept out of always-editable inputs so dense rows stay compact). ---
-  await row.locator('.icon-btn', { hasText: '✎' }).click();
+  await row.getByRole('button', { name: /^Rename/ }).click();
   const nameInput = row.locator('.name-input');
   await nameInput.fill('Soybean crosswalk');
   await nameInput.blur();
@@ -161,22 +161,22 @@ test('build hierarchies, map codes as groups, persist, and export a crosswalk', 
   ]);
   expect(download.suggestedFilename()).toMatch(/\.zip$/);
   const entries = readZipEntries(readFileSync(await download.path()));
-  expect(Object.keys(entries).sort()).toEqual(['crosswalk.csv', 'name-to-target.csv', 'source-to-name.csv']);
+  expect(Object.keys(entries).sort()).toEqual(['a-to-name.csv', 'crosswalk.csv', 'name-to-b.csv']);
 
   const csvSingle = entries['crosswalk.csv'];
   expect(csvSingle.split(/\r?\n/)[0]).toBe(
-    'source_code,source_title,target_code,target_title,group_name,note',
+    'a_code,a_title,b_code,b_title,group_name,note',
   );
   expect(csvSingle).toMatch(/11111,Soybean Farming,01\.11/);
-  // No-match row: blank target.
+  // No-match row: blank B side.
   expect(csvSingle).toMatch(/54151,[^\n]*,,,/);
 
-  const sourceToNameCsv = entries['source-to-name.csv'];
-  const nameToTargetCsv = entries['name-to-target.csv'];
-  expect(sourceToNameCsv.split(/\r?\n/)[0]).toBe('source_code,source_title,group_name');
-  expect(nameToTargetCsv.split(/\r?\n/)[0]).toBe('group_name,target_code,target_title');
-  expect(sourceToNameCsv).toMatch(/11111,Soybean Farming,Soybean crosswalk/);
-  expect(nameToTargetCsv).toMatch(/Soybean crosswalk,01\.11/);
+  const aToNameCsv = entries['a-to-name.csv'];
+  const nameToBCsv = entries['name-to-b.csv'];
+  expect(aToNameCsv.split(/\r?\n/)[0]).toBe('a_code,a_title,group_name');
+  expect(nameToBCsv.split(/\r?\n/)[0]).toBe('group_name,b_code,b_title');
+  expect(aToNameCsv).toMatch(/11111,Soybean Farming,Soybean crosswalk/);
+  expect(nameToBCsv).toMatch(/Soybean crosswalk,01\.11/);
 
   expect(errors, `browser errors:\n${errors.join('\n')}`).toEqual([]);
 });
@@ -206,7 +206,7 @@ test('the full NAICS 2022 sample auto-nests without dumping subsectors under a s
   await page.reload();
 
   await page.getByRole('button', { name: 'NAICS 2022 (full, with descriptions)' }).first().click();
-  await expect(page.locator('.panel[data-accent="A"] .name-input')).toBeVisible();
+  await expect(page.locator('.panel[data-accent="A"] .name-label')).toBeVisible();
 
   for (const b of await page.locator('.panel[data-accent="A"] .controls button', { hasText: 'Expand' }).all()) {
     await b.click();
@@ -368,15 +368,18 @@ test('renaming a dataset is reflected in the exported crosswalk filename', async
   await csvInput.first().setInputFiles(B);
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
 
-  // Rename both datasets via the editable name field in each panel header.
-  const nameA = page.locator('.panel[data-accent="A"] .name-input');
-  const nameB = page.locator('.panel[data-accent="B"] .name-input');
-  await nameA.fill('My NAICS Set');
-  await nameA.blur();
-  await nameB.fill('My NACE Set');
-  await nameB.blur();
-  await expect(nameA).toHaveValue('My NAICS Set');
-  await expect(nameB).toHaveValue('My NACE Set');
+  // Rename both datasets: click each panel's edit button to reveal the name
+  // field, edit it, then blur to commit (it collapses back to static text).
+  const panelA = page.locator('.panel[data-accent="A"]');
+  const panelB = page.locator('.panel[data-accent="B"]');
+  await panelA.getByRole('button', { name: /^Rename/ }).click();
+  await panelA.locator('.name-input').fill('My NAICS Set');
+  await panelA.locator('.name-input').blur();
+  await panelB.getByRole('button', { name: /^Rename/ }).click();
+  await panelB.locator('.name-input').fill('My NACE Set');
+  await panelB.locator('.name-input').blur();
+  await expect(panelA.locator('.name-label')).toHaveText('My NAICS Set');
+  await expect(panelB.locator('.name-label')).toHaveText('My NACE Set');
 
   // Create a mapping so export is enabled.
   for (const b of await page.locator('.controls button', { hasText: 'Expand' }).all()) await b.click();
@@ -440,6 +443,38 @@ test('mapping name and note stay compact static text until explicitly opened for
   expect(entries['crosswalk.csv']).toMatch(/reviewed by Jamie/);
 });
 
+test('hovering a mapped code bubble shows a fast custom tooltip with its title', async ({ page }) => {
+  await page.goto('./');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+
+  const csvInput = page.locator('input[type=file][accept*="csv"]');
+  await csvInput.first().setInputFiles(A);
+  await page.getByRole('button', { name: 'Build hierarchy' }).click();
+  await csvInput.first().setInputFiles(B);
+  await page.getByRole('button', { name: 'Build hierarchy' }).click();
+  for (const b of await page.locator('.controls button', { hasText: 'Expand' }).all()) await b.click();
+
+  await page.locator('.node', { hasText: '11111' }).first().click();
+  await page.locator('.node', { hasText: '01.11' }).first().click();
+  await page.getByRole('button', { name: /Link 1 × 1/ }).click();
+
+  // No native `title` attribute on the bubble — the custom tooltip is the only
+  // affordance, and it isn't shown until hovered.
+  const bubble = page.locator('.row').first().locator('.bubble', { hasText: '11111' });
+  await expect(bubble).not.toHaveAttribute('title');
+  await expect(page.locator('.fast-tooltip')).toHaveCount(0);
+
+  await bubble.hover();
+  const tooltip = page.locator('.fast-tooltip');
+  await expect(tooltip).toBeVisible();
+  await expect(tooltip).toHaveText('Soybean Farming');
+
+  // Moving away hides it again.
+  await bubble.dispatchEvent('mouseleave');
+  await expect(tooltip).toHaveCount(0);
+});
+
 test('replacing a file deletes mappings that reference it, after confirmation', async ({ page }) => {
   await page.goto('./');
   await page.evaluate(() => localStorage.clear());
@@ -464,7 +499,7 @@ test('replacing a file deletes mappings that reference it, after confirmation', 
   page.once('dialog', (d) => d.dismiss());
   await replaceBtn.click();
   await expect(page.locator('.list header h3 .count')).toHaveText('1');
-  await expect(page.locator('.panel[data-accent="A"] .name-input')).toBeVisible();
+  await expect(page.locator('.panel[data-accent="A"] .name-label')).toBeVisible();
 
   // Accepting it deletes the mapping (not just half of it) and returns to upload.
   page.once('dialog', (d) => {

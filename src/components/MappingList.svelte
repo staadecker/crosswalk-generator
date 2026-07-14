@@ -10,6 +10,8 @@
     hoverB,
   } from '../lib/stores.js';
   import { compactCodes, expandToLeaves } from '../lib/hierarchy.js';
+  import editIcon from '@material-design-icons/svg/filled/edit.svg?raw';
+  import noteIcon from '@material-design-icons/svg/filled/sticky_note_2.svg?raw';
 
   let {
     mappings = [],
@@ -18,6 +20,9 @@
     selectionA = new Set(),
     selectionB = new Set(),
   } = $props();
+
+  let labelA = $derived(systemA?.name || 'A');
+  let labelB = $derived(systemB?.name || 'B');
 
   let filterToSelection = $state(false);
   let dragOverKey = $state(null); // `${groupId}:${side}` currently being dragged over
@@ -59,6 +64,35 @@
     node.select?.();
   }
 
+  // A fast-appearing replacement for the native `title` tooltip (which has a
+  // long, browser-controlled show delay) — used on bubble codes so a user can
+  // check a code's title without waiting.
+  let tooltip = $state(null); // { text, x, y } | null
+  function fastTooltip(node, getText) {
+    let timer;
+    function show() {
+      const text = typeof getText === 'function' ? getText() : getText;
+      if (!text) return;
+      const rect = node.getBoundingClientRect();
+      timer = setTimeout(() => {
+        tooltip = { text, x: rect.left + rect.width / 2, y: rect.top };
+      }, 150);
+    }
+    function hide() {
+      clearTimeout(timer);
+      tooltip = null;
+    }
+    node.addEventListener('mouseenter', show);
+    node.addEventListener('mouseleave', hide);
+    return {
+      destroy() {
+        clearTimeout(timer);
+        node.removeEventListener('mouseenter', show);
+        node.removeEventListener('mouseleave', hide);
+      },
+    };
+  }
+
   let aByCode = $derived(systemA?.tree.byCode ?? new Map());
   let bByCode = $derived(systemB?.tree.byCode ?? new Map());
 
@@ -82,17 +116,15 @@
     mappings.map((g) => ({
       ...g,
       noMatch: isNoMatch(g),
-      sourceBubbles: bubbles(systemA, aByCode, g.sourceLeafCodes),
-      targetBubbles: bubbles(systemB, bByCode, g.targetLeafCodes),
+      aBubbles: bubbles(systemA, aByCode, g.aLeafCodes),
+      bBubbles: bubbles(systemB, bByCode, g.bLeafCodes),
     })),
   );
 
   let visible = $derived(
     rows.filter((g) => {
       if (!filterToSelection) return true;
-      return (
-        g.sourceLeafCodes.some((c) => selectionA.has(c)) || g.targetLeafCodes.some((c) => selectionB.has(c))
-      );
+      return g.aLeafCodes.some((c) => selectionA.has(c)) || g.bLeafCodes.some((c) => selectionB.has(c));
     }),
   );
 
@@ -110,8 +142,8 @@
     const aLeaves = hA && systemA ? expandToLeaves(systemA.tree, [hA]) : null;
     const bLeaves = hB && systemB ? expandToLeaves(systemB.tree, [hB]) : null;
     for (const g of mappings) {
-      const touchesA = aLeaves && g.sourceLeafCodes.some((c) => aLeaves.has(c));
-      const touchesB = bLeaves && g.targetLeafCodes.some((c) => bLeaves.has(c));
+      const touchesA = aLeaves && g.aLeafCodes.some((c) => aLeaves.has(c));
+      const touchesB = bLeaves && g.bLeafCodes.some((c) => bLeaves.has(c));
       if (touchesA || touchesB) ids.add(g.id);
     }
     return ids;
@@ -131,9 +163,8 @@
     dragOverKey = null;
     const code = e.dataTransfer.getData('text/plain');
     const originSide = e.dataTransfer.getData('application/x-crosswalk-side');
-    const expectedSide = side === 'source' ? 'A' : 'B';
-    if (!code || originSide !== expectedSide) return;
-    const system = side === 'source' ? systemA : systemB;
+    if (!code || originSide !== side) return;
+    const system = side === 'A' ? systemA : systemB;
     const leaves = system ? [...expandToLeaves(system.tree, [code])] : [code];
     const { skipped } = addCodesToGroup(groupId, side, leaves);
     if (skipped.length) {
@@ -183,7 +214,7 @@
                 aria-label="Rename {m.name}"
                 onclick={() => startEditName(m.id)}
               >
-                ✎
+                {@html editIcon}
               </button>
             {/if}
             <button
@@ -193,7 +224,7 @@
               aria-label={m.note ? `Edit note for ${m.name}` : `Add a note for ${m.name}`}
               onclick={() => startEditNote(m.id)}
             >
-              🗒
+              {@html noteIcon}
             </button>
             <button class="danger" title="Remove this whole mapping" onclick={() => removeMapping(m.id)}>✕</button>
           </div>
@@ -214,55 +245,55 @@
           <div class="pair">
             <div
               class="side"
-              class:drag-over={dragOverKey === `${m.id}:source`}
+              class:drag-over={dragOverKey === `${m.id}:A`}
               role="group"
-              aria-label="Source codes for {m.name}"
-              ondragover={(e) => allowDrop(e, `${m.id}:source`)}
+              aria-label="{labelA} codes for {m.name}"
+              ondragover={(e) => allowDrop(e, `${m.id}:A`)}
               ondragleave={() => (dragOverKey = null)}
-              ondrop={(e) => handleDrop(e, m.id, 'source')}
+              ondrop={(e) => handleDrop(e, m.id, 'A')}
             >
-              {#if m.sourceBubbles.length}
-                {#each m.sourceBubbles as b (b.code)}
-                  <span class="bubble" title={b.tooltip}>
+              {#if m.aBubbles.length}
+                {#each m.aBubbles as b (b.code)}
+                  <span class="bubble" use:fastTooltip={() => b.tooltip}>
                     <span class="bubble-code">{b.code}</span>
                     <button
                       class="bubble-x"
                       aria-label="Remove {b.code} from {m.name}"
-                      onclick={() => removeBubble(m.id, 'source', b)}
+                      onclick={() => removeBubble(m.id, 'A', b)}
                     >
                       ✕
                     </button>
                   </span>
                 {/each}
               {:else}
-                <span class="none">— (no match) — drop a source code here</span>
+                <span class="none">— (no match) — drop a {labelA} code here</span>
               {/if}
             </div>
             <span class="rel" aria-hidden="true">→</span>
             <div
               class="side"
-              class:drag-over={dragOverKey === `${m.id}:target`}
+              class:drag-over={dragOverKey === `${m.id}:B`}
               role="group"
-              aria-label="Target codes for {m.name}"
-              ondragover={(e) => allowDrop(e, `${m.id}:target`)}
+              aria-label="{labelB} codes for {m.name}"
+              ondragover={(e) => allowDrop(e, `${m.id}:B`)}
               ondragleave={() => (dragOverKey = null)}
-              ondrop={(e) => handleDrop(e, m.id, 'target')}
+              ondrop={(e) => handleDrop(e, m.id, 'B')}
             >
-              {#if m.targetBubbles.length}
-                {#each m.targetBubbles as b (b.code)}
-                  <span class="bubble" title={b.tooltip}>
+              {#if m.bBubbles.length}
+                {#each m.bBubbles as b (b.code)}
+                  <span class="bubble" use:fastTooltip={() => b.tooltip}>
                     <span class="bubble-code">{b.code}</span>
                     <button
                       class="bubble-x"
                       aria-label="Remove {b.code} from {m.name}"
-                      onclick={() => removeBubble(m.id, 'target', b)}
+                      onclick={() => removeBubble(m.id, 'B', b)}
                     >
                       ✕
                     </button>
                   </span>
                 {/each}
               {:else}
-                <span class="none">— (no match) — drop a target code here</span>
+                <span class="none">— (no match) — drop a {labelB} code here</span>
               {/if}
             </div>
           </div>
@@ -271,6 +302,10 @@
     {/if}
   </div>
 </div>
+
+{#if tooltip}
+  <div class="fast-tooltip" style="left: {tooltip.x}px; top: {tooltip.y}px">{tooltip.text}</div>
+{/if}
 
 <style>
   .list {
@@ -364,15 +399,22 @@
   }
   .icon-btn {
     flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     border: none;
     background: none;
-    padding: 2px 4px;
-    font-size: 12px;
-    line-height: 1;
+    padding: 4px;
     color: var(--text-muted);
     border-radius: var(--radius-sm);
     opacity: 0;
     transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease;
+  }
+  .icon-btn :global(svg) {
+    width: 14px;
+    height: 14px;
+    fill: currentColor;
+    display: block;
   }
   .row:hover .icon-btn,
   .icon-btn:focus-visible,
@@ -460,5 +502,19 @@
   .note-input:focus {
     background: var(--surface);
     border-color: var(--border);
+  }
+  .fast-tooltip {
+    position: fixed;
+    z-index: 1000;
+    transform: translate(-50%, calc(-100% - 6px));
+    background: var(--text);
+    color: var(--surface);
+    font-size: 11px;
+    line-height: 1.4;
+    padding: 4px 8px;
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow);
+    max-width: 280px;
+    pointer-events: none;
   }
 </style>

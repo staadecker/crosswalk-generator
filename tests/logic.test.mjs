@@ -21,10 +21,10 @@ import {
 import {
   buildCrosswalkRows,
   crosswalkToCsv,
-  buildSourceToNameRows,
-  sourceToNameCsv,
-  buildNameToTargetRows,
-  nameToTargetCsv,
+  buildAToNameRows,
+  aToNameCsv,
+  buildNameToBRows,
+  nameToBCsv,
 } from '../src/lib/crosswalk.js';
 import { buildZip } from '../src/lib/zip.js';
 import {
@@ -42,6 +42,7 @@ import {
   systemB as systemBStore,
   makeSystem,
   uniqueMappingOnly,
+  defaultGroupName,
 } from '../src/lib/stores.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -160,21 +161,21 @@ addGroup(naicsSoyLeaves, naceGrainLeaves, 'Soybean Farming', 'batch');
 check(get(mappings).length === 1, 'creating a many-to-many link creates a single group, not N rows');
 {
   const g = get(mappings)[0];
-  check(g.sourceLeafCodes.join(',') === '11111', 'group stores the expanded leaf source codes');
-  check(g.targetLeafCodes.sort().join(',') === '01.11,01.13', 'group stores the expanded leaf target codes (2 targets)');
+  check(g.aLeafCodes.join(',') === '11111', 'group stores the expanded leaf A codes');
+  check(g.bLeafCodes.sort().join(',') === '01.11,01.13', 'group stores the expanded leaf B codes (2 targets)');
   check(!isNoMatch(g), 'a group with codes on both sides is not a no-match entry');
 }
 
-// A parent-level selection on the source side (1111 -> its 2 leaf children) still
+// A parent-level selection on the A side (1111 -> its 2 leaf children) still
 // produces ONE group whose leaves are the expansion, per the leaf-only-export rule.
 const naicsOilseedLeaves = [...expandToLeaves(sysA.tree, ['1111'])];
 addGroup(naicsOilseedLeaves, [...expandToLeaves(sysB.tree, ['10.61'])], 'Oilseed and Grain Farming');
 {
   const g = get(mappings).find((x) => x.name === 'Oilseed and Grain Farming');
-  check(g.sourceLeafCodes.sort().join(',') === '11111,11112', 'selecting a parent expands to its leaf children for storage');
+  check(g.aLeafCodes.sort().join(',') === '11111,11112', 'selecting a parent expands to its leaf children for storage');
   check(
-    compactCodes(sysA.tree, new Set(g.sourceLeafCodes)).join(',') === '1111',
-    'that group’s source side displays back as the compact parent code (1111), not two leaves',
+    compactCodes(sysA.tree, new Set(g.aLeafCodes)).join(',') === '1111',
+    'that group’s A side displays back as the compact parent code (1111), not two leaves',
   );
 }
 
@@ -190,21 +191,21 @@ addGroup(naicsOilseedLeaves, [...expandToLeaves(sysB.tree, ['10.61'])], 'Oilseed
 
 // --- drag a code from a tree panel onto an existing group ---
 {
-  const g = get(mappings)[0]; // Soybean farming (renamed): source 11111, target 01.11/01.13
-  const before = g.targetLeafCodes.length;
-  addCodesToGroup(g.id, 'target', [...expandToLeaves(sysB.tree, ['01.41'])]);
+  const g = get(mappings)[0]; // Soybean farming (renamed): A 11111, B 01.11/01.13
+  const before = g.bLeafCodes.length;
+  addCodesToGroup(g.id, 'B', [...expandToLeaves(sysB.tree, ['01.41'])]);
   const after = get(mappings).find((x) => x.id === g.id);
-  check(after.targetLeafCodes.length === before + 1, 'dragging a code onto a group adds it to that side');
-  check(after.targetLeafCodes.includes('01.41'), 'the dragged leaf code is present on the group');
+  check(after.bLeafCodes.length === before + 1, 'dragging a code onto a group adds it to that side');
+  check(after.bLeafCodes.includes('01.41'), 'the dragged leaf code is present on the group');
 }
 
 // --- remove a single code (bubble) from a group ---
 {
   const g = get(mappings)[0];
-  removeCodesFromGroup(g.id, 'target', ['01.41']);
+  removeCodesFromGroup(g.id, 'B', ['01.41']);
   const after = get(mappings).find((x) => x.id === g.id);
-  check(!after.targetLeafCodes.includes('01.41'), 'removing a bubble drops just that leaf code');
-  check(after.targetLeafCodes.length === 2, 'the group’s other codes are untouched');
+  check(!after.bLeafCodes.includes('01.41'), 'removing a bubble drops just that leaf code');
+  check(after.bLeafCodes.length === 2, 'the group’s other codes are untouched');
 }
 
 // Removing every code on both sides of a group drops the group entirely.
@@ -212,27 +213,27 @@ addGroup(naicsOilseedLeaves, [...expandToLeaves(sysB.tree, ['10.61'])], 'Oilseed
   addGroup(['54151'], ['62.01'], 'temp');
   const g = get(mappings).find((x) => x.name === 'temp');
   const before = get(mappings).length;
-  removeCodesFromGroup(g.id, 'source', ['54151']);
-  removeCodesFromGroup(g.id, 'target', ['62.01']);
+  removeCodesFromGroup(g.id, 'A', ['54151']);
+  removeCodesFromGroup(g.id, 'B', ['62.01']);
   check(get(mappings).length === before - 1, 'a group with no codes left on either side is dropped entirely');
 }
 
 // --- no-match (both sides) + dedupe against real mappings ---
-const nm1 = markNoMatch('source', ['54151'], 'Computer Systems Design and Related Services');
-check(nm1.added === 1, 'a source code can be marked no match');
-const nmGroup = get(mappings).find((g) => g.sourceLeafCodes.includes('54151'));
+const nm1 = markNoMatch('A', ['54151'], 'Computer Systems Design and Related Services');
+check(nm1.added === 1, 'an A code can be marked no match');
+const nmGroup = get(mappings).find((g) => g.aLeafCodes.includes('54151'));
 check(isNoMatch(nmGroup), 'a one-sided group is reported as no-match');
 
-const nm2 = markNoMatch('target', ['62.01'], 'Computer programming activities');
-check(nm2.added === 1, 'a target code can be marked no match');
+const nm2 = markNoMatch('B', ['62.01'], 'Computer programming activities');
+check(nm2.added === 1, 'a B code can be marked no match');
 
-const nm3 = markNoMatch('source', ['11111'], 'dup'); // already mapped
+const nm3 = markNoMatch('A', ['11111'], 'dup'); // already mapped
 check(nm3.added === 0 && nm3.skipped === 1, 'no-match is skipped for an already-mapped code');
 
 // A real mapping added later removes (or shrinks) an existing no-match entry for that code.
 addGroup(['54151'], ['69.20'], 'Computer Systems Design and Related Services');
 check(
-  !get(mappings).some((g) => isNoMatch(g) && g.sourceLeafCodes.includes('54151')),
+  !get(mappings).some((g) => isNoMatch(g) && g.aLeafCodes.includes('54151')),
   'adding a real mapping drops the code’s prior no-match flag',
 );
 
@@ -241,46 +242,46 @@ systemAStore.set(sysA);
 systemBStore.set(sysB);
 {
   const counts = get(mappingCounts);
-  check(counts.source.get('11111') >= 1, 'a mapped leaf shows a non-zero count');
-  check(counts.source.get('1111') >= counts.source.get('11111'), 'an ancestor aggregates its descendants’ counts');
-  check(counts.noMatchTarget.has('62.01'), 'a no-match leaf code is tracked separately for badge rendering');
+  check(counts.a.get('11111') >= 1, 'a mapped leaf shows a non-zero count');
+  check(counts.a.get('1111') >= counts.a.get('11111'), 'an ancestor aggregates its descendants’ counts');
+  check(counts.noMatchB.has('62.01'), 'a no-match leaf code is tracked separately for badge rendering');
 }
 
 // --- export, mode A: single CSV with the N×N cross-product per group ---
 const rows = buildCrosswalkRows(get(mappings), sysA, sysB);
-const soy = rows.find((r) => r.source_code === '11111' && r.target_code === '01.11');
-check(soy.source_title === 'Soybean Farming', 'crosswalk joins the source title');
-check(soy.target_title.includes('cereals'), 'crosswalk joins the target title');
-const noMatchRow = rows.find((r) => r.source_code === '' && r.target_code === '62.01');
-check(noMatchRow && noMatchRow.target_title.includes('programming'), 'no-match row exports blank source + populated target');
+const soy = rows.find((r) => r.a_code === '11111' && r.b_code === '01.11');
+check(soy.a_title === 'Soybean Farming', 'crosswalk joins the A title');
+check(soy.b_title.includes('cereals'), 'crosswalk joins the B title');
+const noMatchRow = rows.find((r) => r.a_code === '' && r.b_code === '62.01');
+check(noMatchRow && noMatchRow.b_title.includes('programming'), 'no-match row exports blank A + populated B');
 const header = crosswalkToCsv(rows).split(/\r?\n/)[0];
 check(
-  header === 'source_code,source_title,target_code,target_title,group_name,note',
+  header === 'a_code,a_title,b_code,b_title,group_name,note',
   'exported single-file CSV has the expected 6-column header',
 );
 
-// --- export, mode B: two files (source leaf -> group name, group name -> target leaf) ---
-const sourceRows = buildSourceToNameRows(get(mappings), sysA);
-const targetRows = buildNameToTargetRows(get(mappings), sysB);
+// --- export, mode B: two files (A leaf -> group name, group name -> B leaf) ---
+const aRows = buildAToNameRows(get(mappings), sysA);
+const bRows = buildNameToBRows(get(mappings), sysB);
 check(
-  sourceRows.some((r) => r.source_code === '11111' && r.group_name === 'Soybean farming (renamed)'),
-  'source-to-name file maps each source leaf to its group name',
+  aRows.some((r) => r.a_code === '11111' && r.group_name === 'Soybean farming (renamed)'),
+  'a-to-name file maps each A leaf to its group name',
 );
 check(
-  !sourceRows.some((r) => r.group_name === 'Computer programming activities'),
-  'source-to-name file has no rows for a target-only (no-match) group',
+  !aRows.some((r) => r.group_name === 'Computer programming activities'),
+  'a-to-name file has no rows for a B-only (no-match) group',
 );
 check(
-  targetRows.some((r) => r.target_code === '01.11' && r.group_name === 'Soybean farming (renamed)'),
-  'name-to-target file maps each group name to its target leaves',
+  bRows.some((r) => r.b_code === '01.11' && r.group_name === 'Soybean farming (renamed)'),
+  'name-to-b file maps each group name to its B leaves',
 );
 check(
-  sourceToNameCsv(sourceRows).split(/\r?\n/)[0] === 'source_code,source_title,group_name',
-  'source-to-name CSV has the expected 3-column header',
+  aToNameCsv(aRows).split(/\r?\n/)[0] === 'a_code,a_title,group_name',
+  'a-to-name CSV has the expected 3-column header',
 );
 check(
-  nameToTargetCsv(targetRows).split(/\r?\n/)[0] === 'group_name,target_code,target_title',
-  'name-to-target CSV has the expected 3-column header',
+  nameToBCsv(bRows).split(/\r?\n/)[0] === 'group_name,b_code,b_title',
+  'name-to-b CSV has the expected 3-column header',
 );
 
 // --- removeMapping still drops a whole group by id ---
@@ -339,28 +340,28 @@ check(noDesc.byCode.get('w').description === '', 'node.description is blank when
 
   const r1 = addGroup(['31111'], ['11.05'], 'Test unique A');
   check(
-    r1.skippedSource.length === 0 && r1.skippedTarget.length === 0,
+    r1.skippedA.length === 0 && r1.skippedB.length === 0,
     'first use of a fresh code on each side is never skipped',
   );
   const groupA = get(mappings).find((g) => g.name === 'Test unique A');
-  check(groupA.sourceLeafCodes.includes('31111'), 'group A claims source code 31111');
+  check(groupA.aLeafCodes.includes('31111'), 'group A claims code 31111 on side A');
 
   const r2 = addGroup(['31111'], ['11.07'], 'Test unique B');
-  check(r2.skippedSource.join(',') === '31111', 'reusing 31111 on the source side is skipped while the toggle is on');
-  check(r2.skippedTarget.length === 0, 'the target side (11.07, unused) is unaffected');
+  check(r2.skippedA.join(',') === '31111', 'reusing 31111 on side A is skipped while the toggle is on');
+  check(r2.skippedB.length === 0, 'side B (11.07, unused) is unaffected');
   const groupB = get(mappings).find((g) => g.name === 'Test unique B');
   check(
-    groupB.sourceLeafCodes.length === 0 && groupB.targetLeafCodes.includes('11.07'),
-    'group B is still created as a target-only entry once its source code is filtered out',
+    groupB.aLeafCodes.length === 0 && groupB.bLeafCodes.includes('11.07'),
+    'group B is still created as a B-only entry once its A code is filtered out',
   );
   check(isNoMatch(groupB), 'a group left with codes on only one side reads as no-match');
 
-  const drop1 = addCodesToGroup(groupB.id, 'source', ['31111']);
+  const drop1 = addCodesToGroup(groupB.id, 'A', ['31111']);
   check(
-    drop1.skipped.join(',') === '31111' && !get(mappings).find((g) => g.id === groupB.id).sourceLeafCodes.includes('31111'),
+    drop1.skipped.join(',') === '31111' && !get(mappings).find((g) => g.id === groupB.id).aLeafCodes.includes('31111'),
     'dragging an already-claimed code onto a *different* group is skipped, not added',
   );
-  const drop2 = addCodesToGroup(groupA.id, 'source', ['31111']);
+  const drop2 = addCodesToGroup(groupA.id, 'A', ['31111']);
   check(
     drop2.skipped.length === 0,
     're-adding a code to the group that already owns it is a harmless no-op, not a conflict',
@@ -369,11 +370,33 @@ check(noDesc.byCode.get('w').description === '', 'node.description is blank when
   uniqueMappingOnly.set(false);
   const r3 = addGroup(['31111'], ['10.91'], 'Test unique C');
   check(
-    r3.skippedSource.length === 0,
+    r3.skippedA.length === 0,
     'with the toggle off, a code already used elsewhere can be reused freely',
   );
   const groupC = get(mappings).find((g) => g.name === 'Test unique C');
-  check(groupC.sourceLeafCodes.includes('31111'), 'group C also claims 31111 once the restriction is disabled');
+  check(groupC.aLeafCodes.includes('31111'), 'group C also claims 31111 once the restriction is disabled');
+}
+
+// --- defaultGroupName: default naming uses codes (not titles), joined with ";" ---
+{
+  check(
+    defaultGroupName(sysA, new Set(['11111'])) === '11111',
+    'a single leaf code names the group after itself',
+  );
+  check(
+    defaultGroupName(sysA, new Set(['11111', '11112'])) === '1111',
+    'full coverage of a parent’s leaves compacts to that parent code (same rule as bubble display)',
+  );
+  check(
+    defaultGroupName(sysA, new Set(['11111', '11211'])).split(';').sort().join(';') === '11111;112',
+    'partial coverage keeps distinct codes, semicolon-joined (not space/"+"-joined titles)',
+  );
+  const many = defaultGroupName(sysA, new Set(['11111', '11121', '11211', '31111']));
+  check(many.includes(';+2 more'), `more than 3 codes truncates with a "+N more" suffix (got "${many}")`);
+  check(
+    defaultGroupName(null, ['54151']) === '54151',
+    'without a system, the raw leaf codes are used as-is',
+  );
 }
 
 // --- auto level detection: infer hierarchy depth from code structure alone ---

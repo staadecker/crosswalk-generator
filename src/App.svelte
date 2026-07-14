@@ -20,7 +20,7 @@
 
   // Offered as one-click "try sample data" shortcuts on both sides — either side can
   // load any of them, so a user can freely mix and match which classification acts
-  // as source vs. target.
+  // as system A vs. system B.
   const SAMPLE_DATASETS = [
     { file: 'naics-sample.csv', label: 'NAICS (small sample)' },
     { file: 'nace-sample.csv', label: 'NACE (small sample)' },
@@ -40,13 +40,13 @@
   <main>
     <section class="side">
       <SystemPanel
-        title="System A (source)"
+        title="System A"
         accent="A"
         samples={SAMPLE_DATASETS}
         bind:system={$systemA}
         selected={$selectionA}
-        counts={$mappingCounts.source}
-        noMatchCodes={$mappingCounts.noMatchSource}
+        counts={$mappingCounts.a}
+        noMatchCodes={$mappingCounts.noMatchA}
         uniqueMappingOnly={$uniqueMappingOnly}
         onToggle={(code) => toggleSelection(selectionA, code)}
         onClear={() => clearSelection(selectionA)}
@@ -62,10 +62,10 @@
         selectionA={$selectionA}
         selectionB={$selectionB}
         onLinked={linked}
-        onClearSource={() => clearSelection(selectionA)}
-        onClearTarget={() => clearSelection(selectionB)}
-        onRemoveSource={(code) => toggleSelection(selectionA, code)}
-        onRemoveTarget={(code) => toggleSelection(selectionB, code)}
+        onClearA={() => clearSelection(selectionA)}
+        onClearB={() => clearSelection(selectionB)}
+        onRemoveA={(code) => toggleSelection(selectionA, code)}
+        onRemoveB={(code) => toggleSelection(selectionB, code)}
       />
       <MappingList
         mappings={$mappings}
@@ -78,13 +78,13 @@
 
     <section class="side">
       <SystemPanel
-        title="System B (target)"
+        title="System B"
         accent="B"
         samples={SAMPLE_DATASETS}
         bind:system={$systemB}
         selected={$selectionB}
-        counts={$mappingCounts.target}
-        noMatchCodes={$mappingCounts.noMatchTarget}
+        counts={$mappingCounts.b}
+        noMatchCodes={$mappingCounts.noMatchB}
         uniqueMappingOnly={$uniqueMappingOnly}
         onToggle={(code) => toggleSelection(selectionB, code)}
         onClear={() => clearSelection(selectionB)}

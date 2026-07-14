@@ -40,16 +40,22 @@ https://svelte.dev/llms-small.txt for a condensed reference if unsure.
   `expandToLeaves`/`compactCodes`/`leafCodesOf` convert between leaf codes
   (the only codes that matter for export) and their compacted parent-code
   display form.
-- `src/lib/stores.js` — Svelte stores holding the two systems, the mapping
-  *groups* (many-to-many, leaf-codes-only, one row per group not per pair),
-  current selections, hover state (for cross-panel highlight), the
-  unique-mapping-once toggle, and current selections; also owns localStorage
-  autosave/restore and project export/import (JSON snapshot).
+- `src/lib/stores.js` — Svelte stores holding the two systems (`systemA`/
+  `systemB`), the mapping *groups* (many-to-many, leaf-codes-only, one row per
+  group not per pair — `{ id, name, aLeafCodes, bLeafCodes, note }`), current
+  selections, hover state (for cross-panel highlight), the unique-mapping-once
+  toggle, and current selections; also owns localStorage autosave/restore and
+  project export/import (JSON snapshot). The two systems are symmetric — the
+  data model and every function that takes a `side` param use `'A'`/`'B'`,
+  never "source"/"target" (there's no inherent direction; UI labels prefer the
+  user's dataset name when one is set, falling back to "A"/"B"). `defaultGroupName`
+  builds a new group's default name from its A-side leaf codes, semicolon-joined.
   `clearMappingsForSide` deletes every group touching one side (used when
   that side's file is replaced).
 - `src/lib/crosswalk.js` — turns mapping groups into exportable crosswalk
-  rows/CSV (N×N single-file and source→name/name→target split forms) plus
-  `downloadFile`/`downloadBlob` for triggering browser downloads.
+  rows/CSV (N×N single-file `a_code,a_title,b_code,b_title,group_name,note`,
+  plus A→name/name→B split forms) plus `downloadFile`/`downloadBlob` for
+  triggering browser downloads.
 - `src/lib/zip.js` — dependency-free ZIP archive writer (STORE/uncompressed
   method) used to bundle the three exported CSVs into one `.zip` download.
 - `src/components/` — UI: file upload → column mapping → tree panel per
@@ -105,3 +111,18 @@ npm test              # logic tests + Playwright e2e
 - Always keep `README.md` up to date with the current feature set, CSV format,
   and export shape whenever you change behavior that it documents — treat a
   stale README as an incomplete change, not a follow-up.
+- Icon buttons: use inline SVGs from the `@material-design-icons/svg` package
+  rather than emoji or hand-drawn paths. Import the specific icon with Vite's
+  `?raw` suffix (e.g. `import editIcon from
+  '@material-design-icons/svg/filled/edit.svg?raw';`) and render it with
+  `{@html editIcon}` inside the button; size/color it via
+  `.icon-btn :global(svg) { width: …; height: …; fill: currentColor; }`. See
+  the rename/note buttons in `MappingList.svelte` and `TreePanel.svelte` for
+  the pattern. Plain-text glyphs (e.g. "✕" for remove/close) are unaffected —
+  this convention is specifically for edit/action icons that read poorly as a
+  single character.
+- The Mappings pane's code bubbles use a custom fast-appearing tooltip
+  (`fastTooltip` action in `MappingList.svelte`, ~150ms delay) instead of the
+  native `title` attribute, since the browser's own hover-tooltip delay is too
+  slow for quickly scanning many codes. Reuse that action (don't add a native
+  `title` back) if you add more hoverable code chips elsewhere.

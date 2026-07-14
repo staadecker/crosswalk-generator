@@ -1,21 +1,24 @@
 <script>
-  import { addGroup, markNoMatch, uniqueMappingOnly } from '../lib/stores.js';
-  import { expandToLeaves, compactCodes } from '../lib/hierarchy.js';
+  import { addGroup, markNoMatch, uniqueMappingOnly, defaultGroupName } from '../lib/stores.js';
+  import { expandToLeaves } from '../lib/hierarchy.js';
 
   let {
     systemA = null,
     systemB = null,
-    selectionA = new Set(), // source codes
-    selectionB = new Set(), // target codes
+    selectionA = new Set(), // codes selected on system A
+    selectionB = new Set(), // codes selected on system B
     onLinked,
-    onClearSource,
-    onClearTarget,
-    onRemoveSource,
-    onRemoveTarget,
+    onClearA,
+    onClearB,
+    onRemoveA,
+    onRemoveB,
   } = $props();
 
   let note = $state('');
   let flash = $state('');
+
+  let labelA = $derived(systemA?.name || 'A');
+  let labelB = $derived(systemB?.name || 'B');
 
   // Resolve selected codes to {code, title, tooltip} chips.
   function chips(sel, system) {
@@ -25,56 +28,43 @@
       return { code, tooltip: node?.description || node?.title || '' };
     });
   }
-  let sourceChips = $derived(chips(selectionA, systemA));
-  let targetChips = $derived(chips(selectionB, systemB));
+  let aChips = $derived(chips(selectionA, systemA));
+  let bChips = $derived(chips(selectionB, systemB));
 
-  let nSource = $derived(selectionA.size);
-  let nTarget = $derived(selectionB.size);
-  let canLink = $derived(nSource > 0 && nTarget > 0);
+  let nA = $derived(selectionA.size);
+  let nB = $derived(selectionB.size);
+  let canLink = $derived(nA > 0 && nB > 0);
   // No-match applies when exactly one side has a selection.
-  let noMatchSide = $derived(
-    nSource > 0 && nTarget === 0 ? 'source' : nTarget > 0 && nSource === 0 ? 'target' : null,
-  );
+  let noMatchSide = $derived(nA > 0 && nB === 0 ? 'A' : nB > 0 && nA === 0 ? 'B' : null);
 
   function say(msg) {
     flash = msg;
     setTimeout(() => (flash = ''), 2600);
   }
 
-  // Build a readable default group name from the (compacted, for brevity) display
-  // codes on one side: reuse the single name if there's just one, else aggregate.
-  function groupName(system, leafCodes) {
-    const byCode = system?.tree.byCode ?? new Map();
-    const displayCodes = system ? compactCodes(system.tree, leafCodes) : [...leafCodes];
-    const labels = displayCodes.map((code) => byCode.get(code)?.title || code);
-    if (labels.length === 1) return labels[0];
-    if (labels.length <= 3) return labels.join(' + ');
-    return `${labels.slice(0, 2).join(' + ')} + ${labels.length - 2} more`;
-  }
-
   function link() {
     if (!canLink) return;
-    const sourceLeaves = expandToLeaves(systemA.tree, selectionA);
-    const targetLeaves = expandToLeaves(systemB.tree, selectionB);
-    const name = groupName(systemA, sourceLeaves);
-    const { skippedSource, skippedTarget } = addGroup([...sourceLeaves], [...targetLeaves], name, note.trim());
+    const aLeaves = expandToLeaves(systemA.tree, selectionA);
+    const bLeaves = expandToLeaves(systemB.tree, selectionB);
+    const name = defaultGroupName(systemA, aLeaves);
+    const { skippedA, skippedB } = addGroup([...aLeaves], [...bLeaves], name, note.trim());
     note = '';
     onLinked?.(); // App clears both selections
-    const kept = sourceLeaves.size - skippedSource.length;
-    const keptTarget = targetLeaves.size - skippedTarget.length;
-    const skippedTotal = skippedSource.length + skippedTarget.length;
+    const keptA = aLeaves.size - skippedA.length;
+    const keptB = bLeaves.size - skippedB.length;
+    const skippedTotal = skippedA.length + skippedB.length;
     say(
-      `Created a mapping linking ${kept} × ${keptTarget} code(s).` +
+      `Created a mapping linking ${keptA} × ${keptB} code(s).` +
         (skippedTotal ? ` (${skippedTotal} skipped — already mapped elsewhere)` : ''),
     );
   }
 
   function noMatch() {
     if (!noMatchSide) return;
-    const system = noMatchSide === 'source' ? systemA : systemB;
-    const sel = noMatchSide === 'source' ? selectionA : selectionB;
+    const system = noMatchSide === 'A' ? systemA : systemB;
+    const sel = noMatchSide === 'A' ? selectionA : selectionB;
     const leaves = expandToLeaves(system.tree, sel);
-    const name = groupName(system, leaves);
+    const name = defaultGroupName(system, leaves);
     const { added, skipped } = markNoMatch(noMatchSide, [...leaves], name, note.trim());
     note = '';
     onLinked?.();
@@ -86,15 +76,15 @@
   <div class="ends">
     <div class="end" data-accent="A">
       <div class="end-head">
-        <span class="end-label">Source</span>
-        {#if nSource}<button class="linky" onclick={() => onClearSource?.()}>clear</button>{/if}
+        <span class="end-label">{labelA}</span>
+        {#if nA}<button class="linky" onclick={() => onClearA?.()}>clear</button>{/if}
       </div>
-      {#if sourceChips.length}
+      {#if aChips.length}
         <div class="chips">
-          {#each sourceChips as c (c.code)}
+          {#each aChips as c (c.code)}
             <span class="chip" title={c.tooltip}>
               <span class="chip-code">{c.code}</span>
-              <button class="chip-x" aria-label="Remove {c.code}" onclick={() => onRemoveSource?.(c.code)}>✕</button>
+              <button class="chip-x" aria-label="Remove {c.code}" onclick={() => onRemoveA?.(c.code)}>✕</button>
             </span>
           {/each}
         </div>
@@ -107,15 +97,15 @@
 
     <div class="end" data-accent="B">
       <div class="end-head">
-        <span class="end-label">Target</span>
-        {#if nTarget}<button class="linky" onclick={() => onClearTarget?.()}>clear</button>{/if}
+        <span class="end-label">{labelB}</span>
+        {#if nB}<button class="linky" onclick={() => onClearB?.()}>clear</button>{/if}
       </div>
-      {#if targetChips.length}
+      {#if bChips.length}
         <div class="chips">
-          {#each targetChips as c (c.code)}
+          {#each bChips as c (c.code)}
             <span class="chip" title={c.tooltip}>
               <span class="chip-code">{c.code}</span>
-              <button class="chip-x" aria-label="Remove {c.code}" onclick={() => onRemoveTarget?.(c.code)}>✕</button>
+              <button class="chip-x" aria-label="Remove {c.code}" onclick={() => onRemoveB?.(c.code)}>✕</button>
             </span>
           {/each}
         </div>
@@ -136,19 +126,19 @@
     />
     {#if noMatchSide}
       <button class="nomatch-btn" onclick={noMatch}>
-        Mark {noMatchSide === 'source' ? nSource : nTarget} as no match
+        Mark {noMatchSide === 'A' ? nA : nB} as no match
       </button>
     {:else}
       <button class="primary" disabled={!canLink} onclick={link}>
-        Link {nSource} × {nTarget}
+        Link {nA} × {nB}
       </button>
     {/if}
   </div>
 
   <div class="hint" aria-live="polite">
     {#if flash}<span class="ok">{flash}</span>
-    {:else if canLink}Creates one mapping grouping {nSource} source code{nSource === 1 ? '' : 's'} with {nTarget} target code{nTarget === 1 ? '' : 's'}.
-    {:else if noMatchSide}These {noMatchSide === 'source' ? nSource : nTarget} code(s) have no counterpart? Mark them no match.
+    {:else if canLink}Creates one mapping grouping {nA} {labelA} code{nA === 1 ? '' : 's'} with {nB} {labelB} code{nB === 1 ? '' : 's'}.
+    {:else if noMatchSide}These {noMatchSide === 'A' ? nA : nB} code(s) have no counterpart? Mark them no match.
     {:else}Click one or more codes on each side to link them.
     {/if}
   </div>

@@ -100,8 +100,7 @@
   // deletes those mappings outright rather than leaving orphaned half-mappings
   // behind. Confirm first since this can't be undone.
   function changeFile() {
-    const side = accent === 'A' ? 'source' : 'target';
-    const key = side === 'source' ? 'sourceLeafCodes' : 'targetLeafCodes';
+    const key = accent === 'A' ? 'aLeafCodes' : 'bLeafCodes';
     const affected = get(mappings).filter((g) => g[key].length > 0).length;
     if (affected > 0) {
       const ok = confirm(
@@ -109,7 +108,7 @@
       );
       if (!ok) return;
     }
-    clearMappingsForSide(side);
+    clearMappingsForSide(accent);
     system = null;
     onClear?.();
     phase = 'idle';

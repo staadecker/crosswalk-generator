@@ -6,6 +6,9 @@ files (or try the bundled sample datasets), browse each system as a searchable t
 group codes together into named many-to-many mappings. Everything runs in your browser —
 no server, and your data never leaves your machine.
 
+The two systems are symmetric — there's no inherent "source" or "target" — so the app
+refers to them as **A** and **B** (or by whatever name you give each dataset) throughout.
+
 ## Features
 
 - 📁 **Upload two CSVs** and confirm which columns are *code*, *title*, and optionally
@@ -15,10 +18,13 @@ no server, and your data never leaves your machine.
   same choice of a few bundled sample datasets (small NAICS/NACE samples, plus a full
   real-world NAICS 2022 file) so either side can load any of them. Picking one builds the
   hierarchy immediately — no column-mapping step to click through.
-- ✏️ **Editable dataset names**, shown in each panel header and also used to name the
-  exported crosswalk files (e.g. `my-naics-to-my-nace-crosswalk-2026-07-14.zip`).
+- ✏️ **Editable dataset names**, via a dedicated rename button in each panel header (always
+  visible, not just on hover) — also used to name the exported crosswalk files (e.g.
+  `my-naics-to-my-nace-crosswalk-2026-07-14.zip`).
 - 🌳 **Collapsible, searchable trees**, with a bigger click target and hover state on the
   expand/collapse arrows. Hovering a node with a description shows it as a tooltip.
+- ⚡ **Fast custom tooltips** on a mapping's code bubbles — a short, quick-appearing
+  tooltip with the code's title, instead of waiting on the browser's native hover delay.
 - 🔢 **Auto-detected level by default** — hierarchy depth is inferred straight from each
   code's own structure (dot-separator count or code length, including NAICS-style
   hyphenated sector-range codes like "48-49"), with missing parent codes synthesized
@@ -26,11 +32,13 @@ no server, and your data never leaves your machine.
   natural position among siblings. Switch to an explicit level column instead if
   auto-detection gets a file wrong.
 - 🔗 **Grouped many-to-many mappings** — selecting codes on both sides and linking them
-  creates a single named group (not one row per pair). Drag a code from either tree onto
-  an existing group to add it; remove a single code from a group via its bubble's "✕".
-  Only leaf (lowest-level) codes are ever stored in a mapping — parent codes are purely a
-  navigation/selection convenience, and the UI compacts a group's leaves back into a
-  parent code for display whenever every leaf under that parent is present.
+  creates a single named group (not one row per pair), defaulting to a name built from the
+  linked A-side leaf codes themselves (semicolon-joined, e.g. `11111;11112`) rather than
+  their titles — rename it any time. Drag a code from either tree onto an existing group to
+  add it; remove a single code from a group via its bubble's "✕". Only leaf (lowest-level)
+  codes are ever stored in a mapping — parent codes are purely a navigation/selection
+  convenience, and the UI compacts a group's leaves back into a parent code for display
+  whenever every leaf under that parent is present.
 - 🖱️ **Hover-highlight** — hovering a code (leaf *or* ancestor) in either tree highlights
   every mapping group it (or any of its descendants) belongs to in the Mappings pane.
 - 🎯 **Grayed-out mapped entries** instead of a "hide mapped" toggle, plus a per-node
@@ -122,17 +130,17 @@ For a user/organization site or a custom domain served at the root, build with
 A single "Export crosswalk (.zip)" button downloads one zip archive containing all three
 representations of the current mappings:
 
-- `crosswalk.csv` — full N×N cross-product, one row per source-leaf × target-leaf pair
-  within each group:
-  `source_code, source_title, target_code, target_title, group_name, note`
-- `source-to-name.csv` — source → group name (many-to-one):
-  `source_code, source_title, group_name`
-- `name-to-target.csv` — group name → target (one-to-many):
-  `group_name, target_code, target_title`
+- `crosswalk.csv` — full N×N cross-product, one row per A-leaf × B-leaf pair within each
+  group:
+  `a_code, a_title, b_code, b_title, group_name, note`
+- `a-to-name.csv` — A → group name (many-to-one):
+  `a_code, a_title, group_name`
+- `name-to-b.csv` — group name → B (one-to-many):
+  `group_name, b_code, b_title`
 
 A group with no counterpart on one side (a "no match" flag) contributes rows with the
 other side's fields left blank in `crosswalk.csv`, and simply doesn't appear in
-`source-to-name.csv`/`name-to-target.csv` for its missing side.
+`a-to-name.csv`/`name-to-b.csv` for its missing side.
 
 The zip itself is written by a small dependency-free archiver
 ([`src/lib/zip.js`](src/lib/zip.js), uncompressed/STORE method — plenty for a handful of
