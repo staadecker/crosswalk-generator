@@ -11,7 +11,6 @@
     selected = new Set(), // selection Set for this side
     counts = new Map(),
     noMatchCodes = new Set(),
-    uniqueMappingOnly = false,
     accent = 'A',
     title = 'System',
     samples = [], // [{ file, label }] — each offers a one-click "try sample data" shortcut
@@ -127,7 +126,6 @@
     {selected}
     {counts}
     {noMatchCodes}
-    {uniqueMappingOnly}
     {accent}
     {onToggle}
     {onClear}

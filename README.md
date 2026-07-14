@@ -68,10 +68,11 @@ This program is free software: you can redistribute it and/or modify it under th
   idea as a per-node "select unmapped" action, but built into the click itself), compacting
   the resulting selection to the topmost fully-unmapped code at each branch and auto-expanding
   the tree so it's actually visible.
-- 🔒 **Optional "map each code once"** constraint — when enabled, a leaf code already in a
-  mapping group can't be selected for a new group on the same side at all (the tree greys
-  it out further and refuses the click, rather than silently dropping it at link time);
-  dragging one onto a *different* existing group is still rejected with a message.
+- 🔒 **Each code maps once per side** — a leaf code already in a mapping group can't be
+  selected for a new group on the same side at all (the tree refuses the click, rather than
+  silently dropping it at link time); dragging one onto a *different* existing group is
+  still rejected with a message. A prior no-match flag doesn't count as a claim, though — a
+  code you later find a real match for is never blocked by its own no-match entry.
 - 🧾 **Dense Mappings pane** — a group's name and note stay compact static text/an icon
   button until explicitly opened for editing, so hundreds of rows stay scannable.
 - ⚠️ **Replacing a file is a destructive action** — it's styled like the other danger
@@ -79,6 +80,10 @@ This program is free software: you can redistribute it and/or modify it under th
   than leaving orphaned half-mappings behind).
 - 📊 **Progress bars** above each tree showing the fraction of codes already mapped, turning
   green once a side reaches 100%.
+- ↩️ **Undo/redo** in the toolbar, covering mapping changes (linking, no-match, editing,
+  removing) — not tree selections or file uploads, which aren't really "edits" to undo. A
+  fresh edit after an undo discards whatever could have been redone, and both are cleared
+  by clearing everything or loading a different project.
 - 💾 **Auto-save** to local storage; **Save/Load project** as JSON to resume or share.
 - ⬇️ **One-click export** — a single button downloads one `.zip` containing all three
   crosswalk representations (see [Crosswalk export](#crosswalk-export) below).

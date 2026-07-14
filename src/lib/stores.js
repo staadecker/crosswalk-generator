@@ -30,6 +30,69 @@ export const systemB = writable(null);
  */
 export const mappings = writable([]);
 
+/**
+ * Undo/redo over `mappings` only (not selections/hover, which are transient UI
+ * state, not edits worth undoing). Every mutator in this file replaces the
+ * array immutably (map/filter/spread), so a *reference* change always means a
+ * real edit happened — that's what drives recording history here, without
+ * needing every mutator to opt in individually. `mappingsHistory`/
+ * `mappingsFuture` hold past/future array states (most-recent last) purely so
+ * the toolbar can reactively enable/disable the undo/redo buttons.
+ */
+export const mappingsHistory = writable([]);
+export const mappingsFuture = writable([]);
+export const canUndoMappings = derived(mappingsHistory, (h) => h.length > 0);
+export const canRedoMappings = derived(mappingsFuture, (f) => f.length > 0);
+
+let lastMappingsValue = get(mappings);
+let applyingHistory = false; // true while undo/redo itself is setting `mappings`, so that doesn't get recorded as a new action
+mappings.subscribe(($m) => {
+  if (applyingHistory) {
+    lastMappingsValue = $m;
+    return;
+  }
+  if ($m !== lastMappingsValue) {
+    mappingsHistory.update((h) => [...h, lastMappingsValue]);
+    mappingsFuture.set([]); // a fresh edit invalidates whatever could have been redone
+    lastMappingsValue = $m;
+  }
+});
+
+export function undoMappings() {
+  const h = get(mappingsHistory);
+  if (!h.length) return;
+  const prev = h[h.length - 1];
+  mappingsHistory.set(h.slice(0, -1));
+  mappingsFuture.update((f) => [...f, lastMappingsValue]);
+  applyingHistory = true;
+  mappings.set(prev);
+  applyingHistory = false;
+  lastMappingsValue = prev;
+}
+
+export function redoMappings() {
+  const f = get(mappingsFuture);
+  if (!f.length) return;
+  const next = f[f.length - 1];
+  mappingsFuture.set(f.slice(0, -1));
+  mappingsHistory.update((h) => [...h, lastMappingsValue]);
+  applyingHistory = true;
+  mappings.set(next);
+  applyingHistory = false;
+  lastMappingsValue = next;
+}
+
+/**
+ * Wipe undo/redo history — used whenever `mappings` is replaced wholesale by
+ * something other than an incremental edit (clearing everything, or loading a
+ * different project entirely), since "undoing" back into an unrelated, prior
+ * project's mappings would be more confusing than useful.
+ */
+function resetMappingsHistory() {
+  mappingsHistory.set([]);
+  mappingsFuture.set([]);
+}
+
 /** Multi-select: a Set of selected codes per tree. */
 export const selectionA = writable(new Set());
 export const selectionB = writable(new Set());
@@ -37,14 +100,6 @@ export const selectionB = writable(new Set());
 /** Code currently hovered in the A/B tree panel (or null), for Mappings-pane highlight. */
 export const hoverA = writable(null);
 export const hoverB = writable(null);
-
-/**
- * When true, a leaf code may belong to at most one mapping group per side (it
- * can still appear alongside many codes on the *other* side of that one
- * group). Enforced in addGroup/addCodesToGroup, which skip already-claimed
- * codes and report how many were skipped.
- */
-export const uniqueMappingOnly = writable(false);
 
 /** Toggle a code in/out of a selection Set store. */
 export function toggleSelection(store, code) {
@@ -147,15 +202,21 @@ function aggregateCounts(tree, leafCountMap) {
 }
 
 /**
- * Leaf codes already claimed by some *other* group on the given side — used to
- * enforce uniqueMappingOnly. `excludeGroupId` lets a group check against every
- * other group without flagging its own existing codes as a conflict.
+ * Leaf codes already claimed by some *other* group on the given side — a leaf
+ * code may belong to at most one mapping group per side (it can still appear
+ * alongside many codes on the *other* side of that one group). `excludeGroupId`
+ * lets a group check against every other group without flagging its own
+ * existing codes as a conflict. A no-match group's codes don't count as
+ * "claimed" here — no-match just means "nothing found yet", not a real
+ * mapping, so it must never block that same code from getting a real one
+ * later (see addGroup's own no-match-shrinking behavior, which relies on
+ * being able to add the real mapping in the first place).
  */
 function codesUsedElsewhere($mappings, side, excludeGroupId) {
   const key = side === 'A' ? 'aLeafCodes' : 'bLeafCodes';
   const used = new Set();
   for (const g of $mappings) {
-    if (g.id === excludeGroupId) continue;
+    if (g.id === excludeGroupId || isNoMatch(g)) continue;
     for (const c of g[key]) used.add(c);
   }
   return used;
@@ -168,9 +229,8 @@ function codesUsedElsewhere($mappings, side, excludeGroupId) {
  * code (they're contradictory); a no-match group left empty on both sides is
  * dropped entirely.
  *
- * When uniqueMappingOnly is on, codes already claimed by another group on the
- * same side are skipped rather than added (reported back so the caller can
- * tell the user).
+ * Codes already claimed by another group on the same side are skipped rather
+ * than added (reported back so the caller can tell the user).
  *
  * @returns {{ skippedA: string[], skippedB: string[] }}
  */
@@ -180,14 +240,12 @@ export function addGroup(aLeafCodes, bLeafCodes, name, note = '') {
   mappings.update(($m) => {
     let aCodes = [...new Set(aLeafCodes)];
     let bCodes = [...new Set(bLeafCodes)];
-    if (get(uniqueMappingOnly)) {
-      const usedA = codesUsedElsewhere($m, 'A', null);
-      const usedB = codesUsedElsewhere($m, 'B', null);
-      skippedA = aCodes.filter((c) => usedA.has(c));
-      skippedB = bCodes.filter((c) => usedB.has(c));
-      aCodes = aCodes.filter((c) => !usedA.has(c));
-      bCodes = bCodes.filter((c) => !usedB.has(c));
-    }
+    const usedA = codesUsedElsewhere($m, 'A', null);
+    const usedB = codesUsedElsewhere($m, 'B', null);
+    skippedA = aCodes.filter((c) => usedA.has(c));
+    skippedB = bCodes.filter((c) => usedB.has(c));
+    aCodes = aCodes.filter((c) => !usedA.has(c));
+    bCodes = bCodes.filter((c) => !usedB.has(c));
     if (!aCodes.length && !bCodes.length) return $m;
     const aSet = new Set(aCodes);
     const bSet = new Set(bCodes);
@@ -267,10 +325,10 @@ export function updateGroupNote(id, note) {
 }
 
 /**
- * Add leaf codes to an existing group's A or B side (e.g. drag-and-drop). When
- * uniqueMappingOnly is on, codes already claimed by a *different* group on
- * that same side are skipped (adding a code already in *this* group is always
- * a harmless no-op, not a conflict).
+ * Add leaf codes to an existing group's A or B side (e.g. drag-and-drop).
+ * Codes already claimed by a *different* group on that same side are skipped
+ * (adding a code already in *this* group is always a harmless no-op, not a
+ * conflict).
  *
  * @returns {{ skipped: string[] }}
  */
@@ -278,12 +336,12 @@ export function addCodesToGroup(id, side, leafCodes) {
   const key = side === 'A' ? 'aLeafCodes' : 'bLeafCodes';
   let skipped = [];
   mappings.update(($m) => {
-    const used = get(uniqueMappingOnly) ? codesUsedElsewhere($m, side, id) : null;
+    const used = codesUsedElsewhere($m, side, id);
     return $m.map((g) => {
       if (g.id !== id) return g;
       const set = new Set(g[key]);
       for (const c of leafCodes) {
-        if (used && used.has(c)) {
+        if (used.has(c)) {
           skipped.push(c);
           continue;
         }
@@ -299,8 +357,7 @@ export function addCodesToGroup(id, side, leafCodes) {
  * Move leaf codes from one group to another on the same side (e.g. dragging a
  * mapping-pane bubble onto a different group's row). Removing from the source
  * happens before adding to the target so the move itself is never treated as
- * "used elsewhere" under uniqueMappingOnly. A no-op if source and target are
- * the same group.
+ * "used elsewhere". A no-op if source and target are the same group.
  * @returns {{ skipped: string[] }}
  */
 export function moveCodesToGroup(sourceId, targetId, side, leafCodes) {
@@ -364,6 +421,7 @@ export function clearAll() {
   selectionB.set(new Set());
   hoverA.set(null);
   hoverB.set(null);
+  resetMappingsHistory();
 }
 
 // ---------------------------------------------------------------------------
@@ -384,7 +442,6 @@ function snapshot() {
     // Sets aren't JSON-serializable; store selections as arrays.
     selectionA: [...get(selectionA)],
     selectionB: [...get(selectionB)],
-    uniqueMappingOnly: get(uniqueMappingOnly),
   };
 }
 
@@ -401,7 +458,7 @@ export function loadProject(data) {
   mappings.set(Array.isArray(data.mappings) ? data.mappings : []);
   selectionA.set(new Set(Array.isArray(data.selectionA) ? data.selectionA : []));
   selectionB.set(new Set(Array.isArray(data.selectionB) ? data.selectionB : []));
-  uniqueMappingOnly.set(!!data.uniqueMappingOnly);
+  resetMappingsHistory();
 }
 
 let saveTimer = null;
@@ -437,7 +494,7 @@ export function initPersistence() {
       console.warn('Failed to restore saved state:', err);
     }
   }
-  [systemA, systemB, mappings, selectionA, selectionB, uniqueMappingOnly].forEach((s) => s.subscribe(scheduleSave));
+  [systemA, systemB, mappings, selectionA, selectionB].forEach((s) => s.subscribe(scheduleSave));
 
   // Flush any pending debounced save before the page is hidden/unloaded so a
   // change made moments before closing or reloading isn't lost.

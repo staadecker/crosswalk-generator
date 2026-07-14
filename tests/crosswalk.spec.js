@@ -48,7 +48,10 @@ test('build hierarchies, map codes as groups, persist, and export a crosswalk', 
   await page.evaluate(() => localStorage.clear());
   await page.reload();
 
-  await expect(page.getByText('Crosswalk Generator')).toBeVisible();
+  // Scoped to the toolbar title specifically — the footer also mentions
+  // "Crosswalk Generator" in passing, which would otherwise make this an
+  // ambiguous (multi-element) locator.
+  await expect(page.locator('.toolbar .name', { hasText: 'Crosswalk Generator' })).toBeVisible();
 
   // --- Upload both systems. Each panel's file input unmounts once its tree is
   // built, so take the first remaining CSV input for each upload. ---
@@ -148,10 +151,13 @@ test('build hierarchies, map codes as groups, persist, and export a crosswalk', 
   await noMatchBtn.click();
   // 5415 is 54151's sole parent (they share a description in this sample), so the
   // Mappings pane displays the compacted parent code "5415", not the leaf "54151" —
-  // per the parent-code-for-brevity rule. The tree itself still shows the real leaf.
+  // per the parent-code-for-brevity rule.
   await expect(page.locator('.row.nomatch', { hasText: '5415' })).toBeVisible();
-  await expect(page.locator('.node', { hasText: '54151' }).locator('.badge.nomatch')).toBeVisible();
   await expect(page.locator('.row')).toHaveCount(2);
+  // 5415 is now 100% "mapped" (no-match counts) and auto-collapsed, hiding its
+  // leaf — reopen it to confirm the tree still shows the real leaf 54151.
+  await page.locator('.node', { hasText: /\b5415\b/ }).locator('.twist').click();
+  await expect(page.locator('.node', { hasText: '54151' }).locator('.badge.nomatch')).toBeVisible();
 
   // --- Persistence across reload. ---
   await page.reload();
@@ -360,7 +366,7 @@ test('auto-generate parent codes disambiguates a code that collides with an impl
   expect(errors, `browser errors:\n${errors.join('\n')}`).toEqual([]);
 });
 
-test('unique-mapping-once toggle blocks selecting an already-mapped code outright', async ({ page }) => {
+test('a code already mapped on one side can never be selected for a second mapping', async ({ page }) => {
   const errors = [];
   page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
 
@@ -381,18 +387,21 @@ test('unique-mapping-once toggle blocks selecting an already-mapped code outrigh
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
   for (const b of await page.locator('.controls button', { hasText: 'Expand' }).all()) await b.click();
 
-  // First group: 11111 <-> 01.11. Untouched by the toggle (still off).
+  // There's no toggle for this anymore — a code can only ever belong to one
+  // mapping per side.
+  await expect(page.getByText('Only allow each code to be mapped once')).toHaveCount(0);
+
+  // First group: 11111 <-> 01.11.
   await page.locator('.node', { hasText: '11111' }).first().click();
   await page.locator('.node', { hasText: '01.11' }).first().click();
   await page.getByRole('button', { name: 'Link' }).click();
   await expect(page.locator('.list header h3 .count')).toHaveText('1');
 
-  // Turn the restriction on: clicking an already-mapped code must not select it at
-  // all (not silently drop it later at Link time) — the click is refused outright.
-  // The node is marked aria-disabled, so Playwright's normal actionability check
-  // would itself refuse to click it; force the click to prove the app's own click
+  // Clicking an already-mapped code must not select it at all (not silently
+  // drop it later at Link time) — the click is refused outright. The node is
+  // marked aria-disabled, so Playwright's normal actionability check would
+  // itself refuse to click it; force the click to prove the app's own click
   // handler (not just the browser) rejects it.
-  await page.getByLabel('Only allow each code to be mapped once').check();
   const mappedSource = page.locator('.node', { hasText: '11111' }).first();
   await expect(mappedSource).toHaveClass(/locked/);
   await expect(mappedSource).toHaveAttribute('aria-disabled', 'true');
@@ -418,14 +427,6 @@ test('unique-mapping-once toggle blocks selecting an already-mapped code outrigh
   await dragAndDrop(page.locator('.node', { hasText: '11111' }).first(), secondRow.locator('.pair > .side').first());
   await expect(page.locator('.list .flash')).toContainText('skipped');
   await expect(secondRow.locator('.pair > .side').first().locator('.bubble')).toHaveCount(1); // 31111 only, 11111 rejected
-
-  // With the toggle off again, an already-used code can be reused freely.
-  await page.getByLabel('Only allow each code to be mapped once').uncheck();
-  await expect(page.locator('.node', { hasText: '11111' }).first()).not.toHaveClass(/locked/);
-  await page.locator('.node', { hasText: '11111' }).first().click();
-  await page.locator('.node', { hasText: '10.91' }).first().click();
-  await page.getByRole('button', { name: 'Link' }).click();
-  await expect(page.locator('.list header h3 .count')).toHaveText('3');
 
   expect(errors, `browser errors:\n${errors.join('\n')}`).toEqual([]);
 });
@@ -683,7 +684,7 @@ test('per-node progress fraction badges, mapped-code tooltip/cursor, auto-collap
   await page.getByLabel('Parent codes already included').check();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
   const panelA = page.locator('.panel[data-accent="A"]');
-  for (const b of await panelA.locator('.controls button', { hasText: 'Expand' }).all()) await b.click();
+  for (const b of await page.locator('.controls button', { hasText: 'Expand' }).all()) await b.click();
 
   // 1111 (Oilseed and Grain Farming) has exactly two leaf children: 11111, 11112.
   const node1111 = panelA.locator('.node', { hasText: /\b1111\b/ });
@@ -704,18 +705,17 @@ test('per-node progress fraction badges, mapped-code tooltip/cursor, auto-collap
   await expect(node11111.locator('.badge')).toHaveText('✓');
   await expect(node11111.locator('.badge')).toHaveClass(/full/);
 
-  // --- A mapped code stays clickable (no "block" cursor) and, once locked by
-  // the once-only toggle, still shows a plain description tooltip rather than
-  // an explanatory "why disabled" message — the checkmark already communicates
-  // that. (This sample has no separate description column, so the tooltip is
-  // simply absent either way; what matters is it's never the old message.) ---
-  await page.getByLabel('Only allow each code to be mapped once').check();
+  // --- A mapped code is always locked against a second mapping (no toggle to
+  // enable this anymore), but still shows a plain description tooltip and a
+  // normal cursor rather than an explanatory "why disabled" message or a
+  // "blocked" cursor — the checkmark already communicates that. (This sample
+  // has no separate description column, so the tooltip is simply absent
+  // either way; what matters is it's never the old message.) ---
   await expect(node11111).toHaveClass(/locked/);
   const cursor = await node11111.evaluate((el) => getComputedStyle(el).cursor);
   expect(cursor).not.toBe('not-allowed');
   const title = (await node11111.getAttribute('title')) ?? '';
   expect(title).not.toContain('Already part of another mapping');
-  await page.getByLabel('Only allow each code to be mapped once').uncheck();
 
   // --- Completing 1111's last leaf turns its badge fully green *and*
   // auto-collapses the section (its children disappear from view) — but only
@@ -867,4 +867,50 @@ test('the mapping arrow toggles between equal and approximately-equal, and it\'s
   // Toggling back flips it to "equal" again.
   await relBtn.click();
   await expect(relBtn).toHaveText('⇄');
+});
+
+test('undo/redo buttons in the toolbar step through mapping changes', async ({ page }) => {
+  await page.goto('./');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+
+  const csvInput = page.locator('input[type=file][accept*="csv"]');
+  await csvInput.first().setInputFiles(A);
+  await page.getByRole('button', { name: 'Build hierarchy' }).click();
+  await csvInput.first().setInputFiles(B);
+  await page.getByRole('button', { name: 'Build hierarchy' }).click();
+  for (const b of await page.locator('.controls button', { hasText: 'Expand' }).all()) await b.click();
+
+  const undoBtn = page.getByRole('button', { name: 'Undo last mapping change' });
+  const redoBtn = page.getByRole('button', { name: 'Redo last undone mapping change' });
+  await expect(undoBtn).toBeDisabled();
+  await expect(redoBtn).toBeDisabled();
+
+  // Create a mapping — undo becomes available, redo still isn't.
+  await page.locator('.node', { hasText: '11111' }).first().click();
+  await page.locator('.node', { hasText: '01.11' }).first().click();
+  await page.getByRole('button', { name: 'Link' }).click();
+  await expect(page.locator('.row')).toHaveCount(1);
+  await expect(undoBtn).toBeEnabled();
+  await expect(redoBtn).toBeDisabled();
+
+  // Undo removes it again, and now redo is available instead.
+  await undoBtn.click();
+  await expect(page.locator('.row')).toHaveCount(0);
+  await expect(undoBtn).toBeDisabled();
+  await expect(redoBtn).toBeEnabled();
+
+  // Redo brings it back.
+  await redoBtn.click();
+  await expect(page.locator('.row')).toHaveCount(1);
+  await expect(undoBtn).toBeEnabled();
+  await expect(redoBtn).toBeDisabled();
+
+  // A fresh edit after an undo clears whatever could have been redone.
+  await undoBtn.click();
+  await expect(page.locator('.row')).toHaveCount(0);
+  await page.locator('.node', { hasText: '54151' }).first().click();
+  await page.getByRole('button', { name: /Mark 1 as no match/ }).click();
+  await expect(page.locator('.row')).toHaveCount(1);
+  await expect(redoBtn).toBeDisabled();
 });

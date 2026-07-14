@@ -15,7 +15,6 @@
     addToSelection,
     hoverA,
     hoverB,
-    uniqueMappingOnly,
   } from './lib/stores.js';
 
   // Offered as one-click "try sample data" shortcuts on both sides — either side can
@@ -47,7 +46,6 @@
         selected={$selectionA}
         counts={$mappingCounts.a}
         noMatchCodes={$mappingCounts.noMatchA}
-        uniqueMappingOnly={$uniqueMappingOnly}
         onToggle={(code) => toggleSelection(selectionA, code)}
         onClear={() => clearSelection(selectionA)}
         onHover={(code) => hoverA.set(code)}
@@ -85,7 +83,6 @@
         selected={$selectionB}
         counts={$mappingCounts.b}
         noMatchCodes={$mappingCounts.noMatchB}
-        uniqueMappingOnly={$uniqueMappingOnly}
         onToggle={(code) => toggleSelection(selectionB, code)}
         onClear={() => clearSelection(selectionB)}
         onHover={(code) => hoverB.set(code)}

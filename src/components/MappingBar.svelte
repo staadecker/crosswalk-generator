@@ -1,5 +1,5 @@
 <script>
-  import { addGroup, markNoMatch, uniqueMappingOnly, defaultGroupName } from '../lib/stores.js';
+  import { addGroup, markNoMatch, defaultGroupName } from '../lib/stores.js';
   import { expandToLeaves } from '../lib/hierarchy.js';
 
   let {
@@ -143,11 +143,6 @@
     {:else}Click one or more codes on each side to link them.
     {/if}
   </div>
-
-  <label class="unique-toggle" title="When on, a code can only belong to one mapping at a time per side">
-    <input type="checkbox" bind:checked={$uniqueMappingOnly} />
-    Only allow each code to be mapped once
-  </label>
 </div>
 
 <style>
@@ -272,15 +267,6 @@
   .hint .ok {
     color: var(--accent);
     font-weight: 600;
-  }
-  .unique-toggle {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    font-size: 11px;
-    color: var(--text-muted);
-    cursor: pointer;
   }
   @media (max-width: 640px) {
     .ends {

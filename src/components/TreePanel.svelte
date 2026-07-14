@@ -8,7 +8,6 @@
     selected = new Set(), // Set of selected codes on this side
     counts = new Map(), // code -> mapping count for this side
     noMatchCodes = new Set(), // codes flagged no-match on this side
-    uniqueMappingOnly = false, // when true, an already-mapped code can't be selected for a new mapping
     accent = 'A', // 'A' | 'B' for subtle color differentiation
     onToggle,
     onClear,
@@ -178,7 +177,7 @@
   }
 
   function select(code, locked) {
-    if (locked) return; // already mapped elsewhere and uniqueMappingOnly is on — refuse the click outright
+    if (locked) return; // already mapped elsewhere — refuse the click outright
     onToggle?.(code); // click toggles membership in the selection set
   }
 
@@ -339,7 +338,7 @@
       {@const isSelected = selected.has(node.code)}
       {@const isNoMatch = noMatchCodes.has(node.code)}
       {@const isMapped = count > 0 || isNoMatch}
-      {@const isLocked = !hasChildren && uniqueMappingOnly && isMapped && !isSelected}
+      {@const isLocked = !hasChildren && isMapped && !isSelected}
       {@const progress = nodeProgress.get(node.code) ?? { mapped: 0, total: 0 }}
       <div
         class="node"

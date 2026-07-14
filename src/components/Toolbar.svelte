@@ -7,7 +7,13 @@
     exportProject,
     loadProject,
     clearAll,
+    canUndoMappings,
+    canRedoMappings,
+    undoMappings,
+    redoMappings,
   } from '../lib/stores.js';
+  import undoIcon from '@material-design-icons/svg/filled/undo.svg?raw';
+  import redoIcon from '@material-design-icons/svg/filled/redo.svg?raw';
   import {
     buildCrosswalkRows,
     crosswalkToCsv,
@@ -112,6 +118,26 @@
 
   <div class="actions">
     {#if message}<span class="msg" aria-live="polite">{message}</span>{/if}
+    <div class="undo-redo">
+      <button
+        class="icon-btn"
+        onclick={undoMappings}
+        disabled={!$canUndoMappings}
+        title="Undo last mapping change"
+        aria-label="Undo last mapping change"
+      >
+        {@html undoIcon}
+      </button>
+      <button
+        class="icon-btn"
+        onclick={redoMappings}
+        disabled={!$canRedoMappings}
+        title="Redo last undone mapping change"
+        aria-label="Redo last undone mapping change"
+      >
+        {@html redoIcon}
+      </button>
+    </div>
     <button
       onclick={exportCsv}
       disabled={mappingCount === 0}
@@ -171,5 +197,30 @@
     font-size: 12px;
     color: var(--text-muted);
     margin-right: 4px;
+  }
+  .undo-redo {
+    display: flex;
+    gap: 2px;
+    margin-right: 4px;
+    padding-right: 8px;
+    border-right: 1px solid var(--border);
+  }
+  .icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px;
+    border-color: transparent;
+    background: transparent;
+    color: var(--text-muted);
+  }
+  .icon-btn:hover:not(:disabled) {
+    background: var(--surface-2);
+    color: var(--text);
+  }
+  .icon-btn :global(svg) {
+    width: 18px;
+    height: 18px;
+    fill: currentColor;
   }
 </style>

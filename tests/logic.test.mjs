@@ -39,10 +39,13 @@ import {
   isNoMatch,
   mappings,
   mappingCounts,
+  canUndoMappings,
+  canRedoMappings,
+  undoMappings,
+  redoMappings,
   systemA as systemAStore,
   systemB as systemBStore,
   makeSystem,
-  uniqueMappingOnly,
   defaultGroupName,
 } from '../src/lib/stores.js';
 
@@ -180,16 +183,21 @@ check(get(mappings).length === 1, 'creating a many-to-many link creates a single
   check(!isNoMatch(g), 'a group with codes on both sides is not a no-match entry');
 }
 
-// A parent-level selection on the A side (1111 -> its 2 leaf children) still
+// A parent-level selection on the A side (3121 -> its 2 leaf children) still
 // produces ONE group whose leaves are the expansion, per the leaf-only-export rule.
-const naicsOilseedLeaves = [...expandToLeaves(sysA.tree, ['1111'])];
-addGroup(naicsOilseedLeaves, [...expandToLeaves(sysB.tree, ['10.61'])], 'Oilseed and Grain Farming');
+// (Uses the 3121/beverage-manufacturing branch, not yet touched by any earlier
+// test in this file — every leaf code is restricted to one group per side, so
+// reusing an already-claimed one like 11111 here would get silently skipped.)
+const naicsBeverageLeaves = [...expandToLeaves(sysA.tree, ['3121'])];
+addGroup(naicsBeverageLeaves, [...expandToLeaves(sysB.tree, ['10.61'])], 'Beverage Manufacturing');
 {
-  const g = get(mappings).find((x) => x.name === 'Oilseed and Grain Farming');
-  check(g.aLeafCodes.sort().join(',') === '11111,11112', 'selecting a parent expands to its leaf children for storage');
+  const g = get(mappings).find((x) => x.name === 'Beverage Manufacturing');
+  check(g.aLeafCodes.sort().join(',') === '31211,31212', 'selecting a parent expands to its leaf children for storage');
+  // 312 (Beverage and Tobacco Product Manufacturing) has exactly one child,
+  // 3121, so full coverage of 3121's leaves compacts all the way up to 312.
   check(
-    compactCodes(sysA.tree, new Set(g.aLeafCodes)).join(',') === '1111',
-    'that group’s A side displays back as the compact parent code (1111), not two leaves',
+    compactCodes(sysA.tree, new Set(g.aLeafCodes)).join(',') === '312',
+    'that group’s A side displays back as the compact parent code (312), not two leaves',
   );
 }
 
@@ -327,6 +335,30 @@ check(
   check(get(mappings).find((g) => g.id === soyGroup.id).approx === false, 'toggleApprox flips back to equal');
 }
 
+// --- undo/redo: covers `mappings` only (not selections/hover, which are
+// transient UI state rather than edits worth undoing) ---
+{
+  const beforeEdit = get(mappings);
+  markNoMatch('A', ['54121']); // a fresh, not-yet-touched leaf
+  const afterEdit = get(mappings);
+  check(afterEdit !== beforeEdit, 'sanity check: the edit actually changed the mappings array');
+  check(afterEdit.some((g) => g.aLeafCodes.includes('54121')), 'the new no-match row exists before undo');
+  check(get(canUndoMappings), 'undo becomes available right after an edit');
+
+  undoMappings();
+  check(get(mappings) === beforeEdit, 'undo restores the exact prior mappings array');
+  check(get(canRedoMappings), 'redo becomes available right after an undo');
+
+  redoMappings();
+  check(get(mappings) === afterEdit, 'redo restores the state that was just undone');
+  check(!get(canRedoMappings), 'redo is exhausted immediately after redoing everything available');
+
+  // A fresh edit after an undo discards whatever could have been redone.
+  undoMappings();
+  markNoMatch('A', ['54112']); // NAICS has no such code, but markNoMatch doesn't validate against a tree
+  check(!get(canRedoMappings), 'a new edit after an undo clears the redo stack');
+}
+
 // --- export, mode B: two files (A leaf -> group name, group name -> B leaf) ---
 const aRows = buildAToNameRows(get(mappings), sysA);
 const bRows = buildNameToBRows(get(mappings), sysB);
@@ -409,10 +441,8 @@ check(noDesc.byCode.get('w').description === '', 'node.description is blank when
   check(leaves.includes('11111'), 'leafCodesOf includes actual leaf codes');
 }
 
-// --- uniqueMappingOnly: restrict each leaf code to one group per side ---
+// --- each leaf code is restricted to one group per side, always (no toggle) ---
 {
-  uniqueMappingOnly.set(true);
-
   const r1 = addGroup(['31111'], ['11.05'], 'Test unique A');
   check(
     r1.skippedA.length === 0 && r1.skippedB.length === 0,
@@ -422,7 +452,7 @@ check(noDesc.byCode.get('w').description === '', 'node.description is blank when
   check(groupA.aLeafCodes.includes('31111'), 'group A claims code 31111 on side A');
 
   const r2 = addGroup(['31111'], ['11.07'], 'Test unique B');
-  check(r2.skippedA.join(',') === '31111', 'reusing 31111 on side A is skipped while the toggle is on');
+  check(r2.skippedA.join(',') === '31111', 'reusing 31111 on side A is always skipped');
   check(r2.skippedB.length === 0, 'side B (11.07, unused) is unaffected');
   const groupB = get(mappings).find((g) => g.name === 'Test unique B');
   check(
@@ -442,14 +472,11 @@ check(noDesc.byCode.get('w').description === '', 'node.description is blank when
     're-adding a code to the group that already owns it is a harmless no-op, not a conflict',
   );
 
-  uniqueMappingOnly.set(false);
   const r3 = addGroup(['31111'], ['10.91'], 'Test unique C');
   check(
-    r3.skippedA.length === 0,
-    'with the toggle off, a code already used elsewhere can be reused freely',
+    r3.skippedA.join(',') === '31111',
+    'there is no way to disable the restriction — 31111 is still skipped for a third group',
   );
-  const groupC = get(mappings).find((g) => g.name === 'Test unique C');
-  check(groupC.aLeafCodes.includes('31111'), 'group C also claims 31111 once the restriction is disabled');
 }
 
 // --- defaultGroupName: default naming uses codes (not titles), joined with ";" ---
