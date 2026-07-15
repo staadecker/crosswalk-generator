@@ -17,6 +17,7 @@
   import redoIcon from '@material-design-icons/svg/filled/redo.svg?raw';
   import helpIcon from '@material-design-icons/svg/filled/help_outline.svg?raw';
   import { buildCrosswalkRows, crosswalkToCsv, downloadFile, readFileText } from '../lib/crosswalk.js';
+  import { toolbar as strings } from '../lib/strings.js';
 
   let { mappingCount = 0 } = $props();
 
@@ -52,7 +53,7 @@
   function exportCsv() {
     const groups = get(mappings);
     if (!groups.length) {
-      flash('Nothing to export yet.');
+      flash(strings.nothingToExport);
       return;
     }
     const a = get(systemA);
@@ -92,16 +93,16 @@
     try {
       const data = JSON.parse(await readFileText(file));
       loadProject(data);
-      flash('Project loaded.');
+      flash(strings.projectLoaded);
     } catch (err) {
-      flash(`Could not load project: ${err.message ?? err}`);
+      flash(strings.loadProjectError(err.message ?? err));
     }
   }
 
   function onClear() {
-    if (confirm('Restart? This clears both systems and all mappings — it cannot be undone.')) {
+    if (confirm(strings.restartConfirm)) {
       clearAll();
-      flash('Restarted.');
+      flash(strings.restarted);
     }
   }
 
@@ -127,14 +128,14 @@
   <div class="brand">
     <span class="logo" aria-hidden="true">⇄</span>
     <div>
-      <div class="name">Crosswalk Generator</div>
-      <div class="sub">Create a mapping table between two hierarchical classification systems</div>
+      <div class="name">{strings.brandName}</div>
+      <div class="sub">{strings.tagline}</div>
     </div>
     <button
       class="icon-btn"
       onclick={() => helpOpen.set(true)}
-      title="Help — what this tool does and how to use it"
-      aria-label="Help"
+      title={strings.helpTitle}
+      aria-label={strings.helpAriaLabel}
     >
       {@html helpIcon}
     </button>
@@ -147,8 +148,8 @@
         class="icon-btn"
         onclick={undoMappings}
         disabled={!$canUndoMappings}
-        title="Undo last mapping change"
-        aria-label="Undo last mapping change"
+        title={strings.undoTitle}
+        aria-label={strings.undoTitle}
       >
         {@html undoIcon}
       </button>
@@ -156,8 +157,8 @@
         class="icon-btn"
         onclick={redoMappings}
         disabled={!$canRedoMappings}
-        title="Redo last undone mapping change"
-        aria-label="Redo last undone mapping change"
+        title={strings.redoTitle}
+        aria-label={strings.redoTitle}
       >
         {@html redoIcon}
       </button>
@@ -165,15 +166,15 @@
     <button
       onclick={openCiteModal}
       disabled={mappingCount === 0}
-      title="Download a single CSV: one row per code, grouped by a sequential group_number"
+      title={strings.exportTitle}
     >
-      Export crosswalk (.csv)
+      {strings.exportButton}
     </button>
-    <button onclick={saveProject} title="Save systems + mappings as a reloadable JSON file">
-      Save project
+    <button onclick={saveProject} title={strings.saveProjectTitle}>
+      {strings.saveProjectButton}
     </button>
-    <button onclick={() => importEl.click()} title="Load a saved project JSON">Load project</button>
-    <button class="danger" onclick={onClear} title="Remove everything and start over">Restart</button>
+    <button onclick={() => importEl.click()} title={strings.loadProjectTitle}>{strings.loadProjectButton}</button>
+    <button class="danger" onclick={onClear} title={strings.restartTitle}>{strings.restartButton}</button>
     <input bind:this={importEl} type="file" accept=".json,application/json" onchange={onImport} hidden />
   </div>
 </div>
@@ -185,42 +186,15 @@
     onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget && closeHelp()}
     role="button"
     tabindex="0"
-    aria-label="Dismiss help"
+    aria-label={strings.dismissHelpAriaLabel}
   >
-    <div class="help-modal" role="dialog" aria-modal="true" aria-label="Help" tabindex="-1">
+    <div class="help-modal" role="dialog" aria-modal="true" aria-label={strings.helpAriaLabel} tabindex="-1">
       <div class="help-head">
-        <span class="help-title">How Crosswalk Generator works</span>
-        <button class="icon-btn" onclick={closeHelp} aria-label="Close help">✕</button>
+        <span class="help-title">{strings.helpHeading}</span>
+        <button class="icon-btn" onclick={closeHelp} aria-label={strings.closeHelpAriaLabel}>✕</button>
       </div>
       <div class="help-body">
-        <p>
-          Hierarchical classification systems are widely used to organize books,
-          define industries, and classify patents, among other things. When two
-          conflicting systems need to be used a <strong>crosswalk</strong> (also called a concordance
-          table) maps codes from one to the other so data can move between them.
-        </p>
-        <p>
-          Crosswalk Generator builds a many-to-many crosswalk between two
-          hierarchical classification systems entirely in your browser — nothing
-          is uploaded anywhere, and everything auto-saves to this device as you go.
-        </p>
-        <ol>
-          <li>Upload a CSV for System A and System B (or click "Try our demo data" to load a demo pair into both at once).</li>
-          <li>Browse each system as a tree; click codes on both sides to select them.</li>
-          <li>
-            Click <strong>Group</strong> to combine the selected codes into one grouping, or
-            flag a one-sided selection as <strong>no match</strong>.
-          </li>
-          <li>Export the result as a crosswalk CSV or save the project to resume later.</li>
-        </ol>
-        <p>
-          A code already mapped elsewhere on its side is locked from a second grouping;
-          clicking a not-yet-mapped parent code selects every unmapped leaf beneath it.
-        </p>
-        <h3>Keyboard shortcuts</h3>
-        <ul>
-          <li><kbd>G</kbd> — create the grouping for the current selection (same as clicking Group)</li>
-        </ul>
+        {@html strings.helpBodyHtml}
       </div>
     </div>
   </div>
@@ -233,29 +207,23 @@
     onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget && closeCiteModal()}
     role="button"
     tabindex="0"
-    aria-label="Dismiss export dialog"
+    aria-label={strings.dismissCiteAriaLabel}
   >
-    <div class="help-modal" role="dialog" aria-modal="true" aria-label="Export crosswalk" tabindex="-1">
+    <div class="help-modal" role="dialog" aria-modal="true" aria-label={strings.citeHeading} tabindex="-1">
       <div class="help-head">
-        <span class="help-title">Export crosswalk</span>
-        <button class="icon-btn" onclick={closeCiteModal} aria-label="Close">✕</button>
+        <span class="help-title">{strings.citeHeading}</span>
+        <button class="icon-btn" onclick={closeCiteModal} aria-label={strings.closeCiteAriaLabel}>✕</button>
       </div>
       <div class="help-body">
-        <p>
-          Crosswalk Generator is free to use. If you use this exported crosswalk, please
-          credit <strong>Crosswalk Generator</strong> by Martin Staadecker, licensed under
-          <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener"
-            >CC BY 4.0</a
-          >.
-        </p>
+        <p>{@html strings.citeBodyHtml}</p>
         <label class="cite-agree">
           <input type="checkbox" bind:checked={citeAgreed} />
-          I agree to credit Crosswalk Generator when using this data.
+          {strings.citeAgreeLabel}
         </label>
       </div>
       <div class="cite-actions">
-        <button class="ghost" onclick={closeCiteModal}>Cancel</button>
-        <button class="primary" disabled={!citeAgreed} onclick={confirmExport}>Export</button>
+        <button class="ghost" onclick={closeCiteModal}>{strings.cancelButton}</button>
+        <button class="primary" disabled={!citeAgreed} onclick={confirmExport}>{strings.confirmExportButton}</button>
       </div>
     </div>
   </div>

@@ -2,6 +2,7 @@
   import { addGroup, markNoMatch, defaultGroupName, helpOpen } from '../lib/stores.js';
   import { expandToLeaves } from '../lib/hierarchy.js';
   import { get } from 'svelte/store';
+  import { mappingBar as strings, common } from '../lib/strings.js';
 
   let {
     systemA = null,
@@ -19,8 +20,8 @@
   let flash = $state('');
   let approx = $state(false); // relationship the *next* created mapping will get
 
-  let labelA = $derived(systemA?.name || 'A');
-  let labelB = $derived(systemB?.name || 'B');
+  let labelA = $derived(systemA?.name || common.fallbackLabelA);
+  let labelB = $derived(systemB?.name || common.fallbackLabelB);
 
   // Resolve selected codes to {code, title, tooltip} chips.
   function chips(sel, system) {
@@ -55,10 +56,7 @@
     const keptA = aLeaves.size - skippedA.length;
     const keptB = bLeaves.size - skippedB.length;
     const skippedTotal = skippedA.length + skippedB.length;
-    say(
-      `Created a mapping linking ${keptA} × ${keptB} code(s).` +
-        (skippedTotal ? ` (${skippedTotal} skipped — already mapped elsewhere)` : ''),
-    );
+    say(strings.linkedMessage(keptA, keptB, skippedTotal));
   }
 
   // 'G' triggers the same action as clicking Group, so a keyboard-only flow
@@ -81,12 +79,12 @@
     const system = noMatchSide === 'A' ? systemA : systemB;
     const sel = noMatchSide === 'A' ? selectionA : selectionB;
     const leaves = expandToLeaves(system.tree, sel);
-    // Each leaf becomes its own no-match row (see markNoMatch) — they aren't a
-    // group of related codes the way a real A<->B mapping is.
-    const { added, skipped } = markNoMatch(noMatchSide, [...leaves], note.trim());
+    // markNoMatch collapses every leaf under a shared ancestor into one row
+    // (passing the tree); unrelated codes still never get bundled together.
+    const { added, skipped } = markNoMatch(noMatchSide, [...leaves], note.trim(), system.tree);
     note = '';
     onLinked?.();
-    say(`Marked ${added} code${added === 1 ? '' : 's'} as no match${skipped ? ` (${skipped} skipped — already mapped)` : ''}.`);
+    say(strings.markedNoMatchMessage(added, skipped));
   }
 </script>
 
@@ -104,24 +102,24 @@
           {#each aChips as c (c.code)}
             <span class="chip" title={c.tooltip}>
               <span class="chip-code">{c.code}</span>
-              <button class="chip-x" aria-label="Remove {c.code}" onclick={() => onRemoveA?.(c.code)}>✕</button>
+              <button class="chip-x" aria-label={strings.removeChipAriaLabel(c.code)} onclick={() => onRemoveA?.(c.code)}>✕</button>
             </span>
           {/each}
         </div>
       {:else}
-        <span class="placeholder">Click codes on the left</span>
+        <span class="placeholder">{strings.clickLeftHint}</span>
       {/if}
     </div>
 
     <div class="mid">
-      <div class="relswitch" role="radiogroup" aria-label="Relationship for the next mapping">
+      <div class="relswitch" role="radiogroup" aria-label={strings.relationshipAriaLabel}>
         <button
           type="button"
           class="relswitch-opt"
           class:active={!approx}
           role="radio"
           aria-checked={!approx}
-          title="Equal — the next mapping created will be an exact match"
+          title={strings.equalTitle}
           onclick={() => (approx = false)}
         >
           =
@@ -132,7 +130,7 @@
           class:active={approx}
           role="radio"
           aria-checked={approx}
-          title="Approximately equal — the next mapping created will be an approximate match"
+          title={strings.approxTitle}
           onclick={() => (approx = true)}
         >
           ≈
@@ -150,12 +148,12 @@
           {#each bChips as c (c.code)}
             <span class="chip" title={c.tooltip}>
               <span class="chip-code">{c.code}</span>
-              <button class="chip-x" aria-label="Remove {c.code}" onclick={() => onRemoveB?.(c.code)}>✕</button>
+              <button class="chip-x" aria-label={strings.removeChipAriaLabel(c.code)} onclick={() => onRemoveB?.(c.code)}>✕</button>
             </span>
           {/each}
         </div>
       {:else}
-        <span class="placeholder">Click codes on the right</span>
+        <span class="placeholder">{strings.clickRightHint}</span>
       {/if}
     </div>
   </div>
@@ -163,28 +161,28 @@
   <div class="linkrow">
     <input
       type="text"
-      placeholder="Optional note…"
+      placeholder={strings.notePlaceholder}
       bind:value={note}
       onkeydown={(e) => e.key === 'Enter' && link()}
-      aria-label="Mapping note"
+      aria-label={strings.noteAriaLabel}
       disabled={!canLink}
     />
     {#if noMatchSide}
       <button class="nomatch-btn" onclick={noMatch}>
-        Mark {noMatchSide === 'A' ? nA : nB} as no match
+        {strings.markNoMatchButton(noMatchSide === 'A' ? nA : nB)}
       </button>
     {:else}
-      <button class="primary" disabled={!canLink} onclick={link} title="Group (shortcut: G)">
-        Group
+      <button class="primary" disabled={!canLink} onclick={link} title={strings.groupButtonTitle}>
+        {strings.groupButton}
       </button>
     {/if}
   </div>
 
   <div class="hint" aria-live="polite">
     {#if flash}<span class="ok">{flash}</span>
-    {:else if canLink}Creates one mapping grouping {nA} {labelA} code{nA === 1 ? '' : 's'} with {nB} {labelB} code{nB === 1 ? '' : 's'}.
-    {:else if noMatchSide}These {noMatchSide === 'A' ? nA : nB} code(s) have no counterpart? Mark them no match.
-    {:else}Click one or more codes on each side to link them.
+    {:else if canLink}{strings.linkHint(nA, labelA, nB, labelB)}
+    {:else if noMatchSide}{strings.noMatchHint(noMatchSide === 'A' ? nA : nB)}
+    {:else}{strings.defaultHint}
     {/if}
   </div>
 </div>

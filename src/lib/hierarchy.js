@@ -1,3 +1,5 @@
+import { hierarchy as hierarchyStrings } from './strings.js';
+
 /**
  * Build a tree from flat rows using an explicit hierarchy-level column.
  *
@@ -20,6 +22,7 @@
  */
 export function buildHierarchy(rows, colMap) {
   const { level: levelCol, code: codeCol, title: titleCol, description: descCol } = colMap;
+  const strings = hierarchyStrings;
   const warnings = [];
 
   const nodes = [];
@@ -39,15 +42,15 @@ export function buildHierarchy(rows, colMap) {
     const level = Number(rawLevel);
 
     if (rawCode === '') {
-      warnings.push(`Row ${i + 2}: missing code — row skipped.`);
+      warnings.push(strings.missingCode(i + 2));
       return;
     }
     if (rawLevel === '' || !Number.isFinite(level)) {
-      warnings.push(`Row ${i + 2} (code "${rawCode}"): missing or non-numeric level — row skipped.`);
+      warnings.push(strings.invalidLevel(i + 2, rawCode));
       return;
     }
     if (byCode.has(rawCode)) {
-      warnings.push(`Row ${i + 2}: duplicate code "${rawCode}" — kept the first occurrence, skipped this one.`);
+      warnings.push(strings.duplicateCode(i + 2, rawCode));
       return;
     }
 
@@ -82,7 +85,7 @@ export function buildHierarchy(rows, colMap) {
   });
 
   if (nodes.length && roots.length === 0) {
-    warnings.push('No root rows detected — check that the level column is correct.');
+    warnings.push(strings.noRootRows);
   }
 
   return { nodes, byCode, roots, childrenOf, warnings };

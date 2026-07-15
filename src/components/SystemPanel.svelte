@@ -5,6 +5,7 @@
   import { parseCsv } from '../lib/csv.js';
   import { makeSystem, mappings, clearMappingsForSide } from '../lib/stores.js';
   import { get } from 'svelte/store';
+  import { systemPanel as strings } from '../lib/strings.js';
 
   let {
     system = $bindable(null), // bound system object (or null)
@@ -12,7 +13,7 @@
     counts = new Map(),
     noMatchCodes = new Set(),
     accent = 'A',
-    title = 'System',
+    title = strings.defaultTitle,
     onToggle,
     onClear,
     onHover,
@@ -32,13 +33,13 @@
     try {
       const { fields, rows } = await parseCsv(input);
       if (!fields.length || !rows.length) {
-        error = 'That file has no readable rows.';
+        error = strings.noReadableRows;
       } else {
         parsed = { fileName, fields, rows };
         phase = 'mapping';
       }
     } catch (e) {
-      error = `Could not parse CSV: ${e.message ?? e}`;
+      error = strings.parseError(e.message ?? e);
     } finally {
       loading = false;
     }
@@ -68,9 +69,7 @@
     const key = accent === 'A' ? 'aLeafCodes' : 'bLeafCodes';
     const affected = get(mappings).filter((g) => g[key].length > 0).length;
     if (affected > 0) {
-      const ok = confirm(
-        `Replacing this file will delete ${affected} mapping${affected === 1 ? '' : 's'} that reference it. This cannot be undone. Continue?`,
-      );
+      const ok = confirm(strings.confirmReplace(affected));
       if (!ok) return;
     }
     clearMappingsForSide(accent);
@@ -101,11 +100,11 @@
     <div class="setup-head">{title}</div>
     {#if phase === 'idle'}
       <FileUpload
-        label={`Upload ${title} CSV`}
-        hint="Must include code and title columns. Level and description are optional."
+        label={strings.uploadLabel(title)}
+        hint={strings.uploadHint}
         {onFile}
       />
-      {#if loading}<p class="status">Parsing…</p>{/if}
+      {#if loading}<p class="status">{strings.parsing}</p>{/if}
       {#if error}<p class="status error">{error}</p>{/if}
     {:else if phase === 'mapping'}
       <ColumnMapper

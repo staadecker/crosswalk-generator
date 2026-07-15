@@ -1,6 +1,7 @@
 <script>
   import { guessColumns } from '../lib/csv.js';
   import { fastTooltip } from '../lib/tooltip.js';
+  import { columnMapper as strings } from '../lib/strings.js';
 
   let { fileName = '', fields = [], rows = [], onConfirm, onCancel } = $props();
 
@@ -51,54 +52,54 @@
 
 <div class="mapper">
   <p class="intro">
-    Confirm the columns in <strong>{fileName}</strong>.
+    {strings.confirmColumnsPrefix} <strong>{fileName}</strong>.
   </p>
 
   <div class="section">
-    <h3 class="section-title">Select columns</h3>
+    <h3 class="section-title">{strings.selectColumnsTitle}</h3>
     <div class="fields">
       <label>
         <span>
-          Code column
+          {strings.codeColumnLabel}
           <span
             class="help"
             tabindex="0"
-            use:fastTooltip={'The unique identifier for each row, e.g. a NAICS or NACE code. Should be short and unique across the whole file.'}
+            use:fastTooltip={strings.codeColumnHelp}
             >?</span
           >
         </span>
         <select bind:value={codeCol}>
-          <option value="">— select —</option>
+          <option value="">{strings.selectPlaceholder}</option>
           {#each fields as f}<option value={f}>{f}</option>{/each}
         </select>
       </label>
       <label>
         <span>
-          Title column
+          {strings.titleColumnLabel}
           <span
             class="help"
             tabindex="0"
-            use:fastTooltip={'A short label or name for each code — the primary text shown in the tree.'}
+            use:fastTooltip={strings.titleColumnHelp}
             >?</span
           >
         </span>
         <select bind:value={titleCol}>
-          <option value="">— select —</option>
+          <option value="">{strings.selectPlaceholder}</option>
           {#each fields as f}<option value={f}>{f}</option>{/each}
         </select>
       </label>
       <label>
         <span>
-          Description column <em>(optional)</em>
+          {strings.descColumnLabel} <em>{strings.descColumnOptionalTag}</em>
           <span
             class="help"
             tabindex="0"
-            use:fastTooltip={'A longer, free-text description of each code. Shown only as a hover tooltip, never as the primary label.'}
+            use:fastTooltip={strings.descColumnHelp}
             >?</span
           >
         </span>
         <select bind:value={descCol}>
-          <option value="">— none —</option>
+          <option value="">{strings.nonePlaceholder}</option>
           {#each fields as f}<option value={f}>{f}</option>{/each}
         </select>
       </label>
@@ -106,41 +107,37 @@
   </div>
 
   <div class="section">
-    <h3 class="section-title">Configure nesting</h3>
+    <h3 class="section-title">{strings.configureNestingTitle}</h3>
     <div class="fields">
       <div class="question">
         <label class="checkbox">
           <input type="checkbox" bind:checked={dataIncludesParents} />
           <span>
-            Data includes parent codes
+            {strings.dataIncludesParentsLabel}
             <span
               class="help"
               tabindex="0"
-              use:fastTooltip={'Check this if your file already has an explicit row for every ancestor level (e.g. a row for "01" as well as "01.1" and "01.11"). Leave unchecked if it only lists the most specific codes.'}
+              use:fastTooltip={strings.dataIncludesParentsHelp}
               >?</span
             >
           </span>
         </label>
         <p class="hint">
-          Parent codes are the ancestor rows above each code (e.g. "01" above "01.1"). Check
-          this if your file already includes them — each code will nest under its own matching
-          row. Leave unchecked (the default) to have missing ancestor codes generated
-          automatically from each code's own structure (e.g. a "01" row will be created if only
-          "01.a" and "01.b" are present).
+          {strings.parentsHint}
         </p>
       </div>
       <label class="level-field" class:disabled={!dataIncludesParents}>
         <span>
-          Level column
+          {strings.levelColumnLabel}
           <span
             class="help"
             tabindex="0"
-            use:fastTooltip={`Optional. If your file has a column giving each row's hierarchy depth as an integer (not necessarily starting at 1 or sequential), pick it here. Leave on "Auto-detect" to infer depth from the shape of each code instead (e.g. "01" → "01.1" → "01.11", or a NAICS-style "48-49" sector range). Only available when "Data includes parent codes" is checked, since an explicit level column needs every ancestor row to already be present.`}
+            use:fastTooltip={strings.levelColumnHelp}
             >?</span
           >
         </span>
         <select bind:value={levelCol} disabled={!dataIncludesParents}>
-          <option value="">Auto-detect from code structure</option>
+          <option value="">{strings.autoDetectOption}</option>
           {#each fields as f}<option value={f}>{f}</option>{/each}
         </select>
       </label>
@@ -155,10 +152,10 @@
             {#each fields as f}
               <th class:sel={f === levelCol || f === codeCol || f === titleCol || f === descCol}>
                 {f}
-                {#if f === levelCol}<span class="tag">level</span>{/if}
-                {#if f === codeCol}<span class="tag">code</span>{/if}
-                {#if f === titleCol}<span class="tag">title</span>{/if}
-                {#if f === descCol}<span class="tag">description</span>{/if}
+                {#if f === levelCol}<span class="tag">{strings.tagLevel}</span>{/if}
+                {#if f === codeCol}<span class="tag">{strings.tagCode}</span>{/if}
+                {#if f === titleCol}<span class="tag">{strings.tagTitle}</span>{/if}
+                {#if f === descCol}<span class="tag">{strings.tagDescription}</span>{/if}
               </th>
             {/each}
           </tr>
@@ -175,9 +172,9 @@
   {/if}
 
   <div class="actions">
-    <button class="ghost" onclick={() => onCancel?.()}>Cancel</button>
+    <button class="ghost" onclick={() => onCancel?.()}>{strings.cancelButton}</button>
     <button class="primary" disabled={!canContinue} onclick={confirm}>
-      Build hierarchy
+      {strings.buildButton}
     </button>
   </div>
 </div>

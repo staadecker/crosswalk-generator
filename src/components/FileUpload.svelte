@@ -1,5 +1,7 @@
 <script>
-  let { label = 'Upload CSV', hint = '', onFile } = $props();
+  import { fileUpload as strings } from '../lib/strings.js';
+
+  let { label = strings.defaultLabel, hint = '', onFile } = $props();
 
   let dragging = $state(false);
   let inputEl;
@@ -45,7 +47,7 @@
     />
   </svg>
   <div class="label">{label}</div>
-  <div class="hint">Drag &amp; drop or click to choose a .csv file</div>
+  <div class="hint">{strings.dropHint}</div>
   {#if hint}<div class="hint muted">{hint}</div>{/if}
   <input bind:this={inputEl} type="file" accept=".csv,text/csv" onchange={onInputChange} hidden />
 </div>

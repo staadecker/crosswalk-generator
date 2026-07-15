@@ -14,6 +14,7 @@
   import { compactCodes, expandToLeaves } from '../lib/hierarchy.js';
   import { fastTooltip } from '../lib/tooltip.js';
   import noteIcon from '@material-design-icons/svg/filled/sticky_note_2.svg?raw';
+  import { mappingList as strings, common } from '../lib/strings.js';
 
   let {
     mappings = [],
@@ -23,8 +24,8 @@
     selectionB = new Set(),
   } = $props();
 
-  let labelA = $derived(systemA?.name || 'A');
-  let labelB = $derived(systemB?.name || 'B');
+  let labelA = $derived(systemA?.name || common.fallbackLabelA);
+  let labelB = $derived(systemB?.name || common.fallbackLabelB);
 
   let filterToSelection = $state(false);
   let dragOverKey = $state(null); // `${groupId}:${side}` currently being dragged over
@@ -161,28 +162,28 @@
       ? moveCodesToGroup(sourceGroupId, groupId, side, leaves)
       : addCodesToGroup(groupId, side, leaves);
     if (skipped.length) {
-      say(`${skipped.length} code${skipped.length === 1 ? '' : 's'} skipped — already mapped elsewhere.`);
+      say(strings.skippedMessage(skipped.length));
     }
   }
 </script>
 
 <div class="list">
   <header>
-    <h3>Groupings <span class="count">{mappings.length}</span></h3>
+    <h3>{strings.groupingsTitle} <span class="count">{mappings.length}</span></h3>
     {#if flash}<span class="flash" aria-live="polite">{flash}</span>{/if}
     {#if hasSelection}
       <label class="filter">
         <input type="checkbox" bind:checked={filterToSelection} />
-        Only selected
+        {strings.onlySelectedLabel}
       </label>
     {/if}
   </header>
 
   <div class="rows" bind:this={rowsEl}>
     {#if mappings.length === 0}
-      <p class="empty">No groupings yet. Click codes on each side, then <strong>Group</strong> them.</p>
+      <p class="empty">{strings.emptyNoGroupingsPrefix} <strong>Group</strong> {strings.emptyNoGroupingsSuffix}</p>
     {:else if visible.length === 0}
-      <p class="empty">No mappings touch the current selection.</p>
+      <p class="empty">{strings.emptyFiltered}</p>
     {:else}
       {#each visible as m (m.id)}
         <div class="row" data-group-id={m.id} class:nomatch={m.noMatch} class:highlighted={highlightedIds.has(m.id)}>
@@ -192,7 +193,7 @@
                 class="side"
                 class:drag-over={dragOverKey === `${m.id}:A`}
                 role="group"
-                aria-label="{labelA} codes for {m.name}"
+                aria-label={strings.sideAriaLabel(labelA, m.name)}
                 ondragover={(e) => allowDrop(e, `${m.id}:A`)}
                 ondragleave={() => (dragOverKey = null)}
                 ondrop={(e) => handleDrop(e, m.id, 'A')}
@@ -216,7 +217,7 @@
                       <span class="bubble-code">{b.code}</span>
                       <button
                         class="bubble-x"
-                        aria-label="Remove {b.code} from {m.name}"
+                        aria-label={strings.removeBubbleAriaLabel(b.code, m.name)}
                         onclick={(e) => {
                           e.stopPropagation();
                           removeBubble(m.id, 'A', b);
@@ -227,13 +228,13 @@
                     </span>
                   {/each}
                 {:else}
-                  <span class="none">— (no match) — drop a {labelA} code here</span>
+                  <span class="none">{strings.noMatchDropHint(labelA)}</span>
                 {/if}
               </div>
               <button
                 class="rel"
-                title={m.approx ? 'Approximately equal — click to mark as equal' : 'Equal — click to mark as approximately equal'}
-                aria-label="Toggle equal/approximately-equal for {m.name}"
+                title={m.approx ? strings.relTitleApprox : strings.relTitleEqual}
+                aria-label={strings.toggleRelAriaLabel(m.name)}
                 onclick={() => toggleApprox(m.id)}
               >
                 {m.approx ? '≈' : '='}
@@ -242,7 +243,7 @@
                 class="side"
                 class:drag-over={dragOverKey === `${m.id}:B`}
                 role="group"
-                aria-label="{labelB} codes for {m.name}"
+                aria-label={strings.sideAriaLabel(labelB, m.name)}
                 ondragover={(e) => allowDrop(e, `${m.id}:B`)}
                 ondragleave={() => (dragOverKey = null)}
                 ondrop={(e) => handleDrop(e, m.id, 'B')}
@@ -266,7 +267,7 @@
                       <span class="bubble-code">{b.code}</span>
                       <button
                         class="bubble-x"
-                        aria-label="Remove {b.code} from {m.name}"
+                        aria-label={strings.removeBubbleAriaLabel(b.code, m.name)}
                         onclick={(e) => {
                           e.stopPropagation();
                           removeBubble(m.id, 'B', b);
@@ -277,7 +278,7 @@
                     </span>
                   {/each}
                 {:else}
-                  <span class="none">— (no match) — drop a {labelB} code here</span>
+                  <span class="none">{strings.noMatchDropHint(labelB)}</span>
                 {/if}
               </div>
             </div>
@@ -285,21 +286,21 @@
               <button
                 class="icon-btn note-btn"
                 class:has-note={!!m.note}
-                title={m.note || 'Add a note'}
-                aria-label={m.note ? `Edit note for ${m.name}` : `Add a note for ${m.name}`}
+                title={m.note || strings.addNoteTitle}
+                aria-label={m.note ? strings.editNoteAriaLabel(m.name) : strings.addNoteAriaLabel(m.name)}
                 onclick={() => startEditNote(m.id)}
               >
                 {@html noteIcon}
               </button>
-              <button class="remove-btn" title="Remove this whole mapping" aria-label="Remove mapping {m.name}" onclick={() => removeMapping(m.id)}>✕</button>
+              <button class="remove-btn" title={strings.removeMappingTitle} aria-label={strings.removeMappingAriaLabel(m.name)} onclick={() => removeMapping(m.id)}>✕</button>
             </div>
           </div>
           {#if editingNote.has(m.id)}
             <input
               class="note-input"
-              placeholder="Add a note…"
+              placeholder={strings.notePlaceholder}
               value={m.note}
-              aria-label="Note for {m.name}"
+              aria-label={strings.noteAriaLabel(m.name)}
               use:autofocus
               onblur={(e) => stopEditNote(m.id, e.target.value)}
               onkeydown={(e) => {

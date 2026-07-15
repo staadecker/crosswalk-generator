@@ -1,5 +1,5 @@
 import { writable, derived, get } from 'svelte/store';
-import { buildHierarchy, buildAutoHierarchy, compactCodes } from './hierarchy.js';
+import { buildHierarchy, buildAutoHierarchy, compactCodes, expandToLeaves } from './hierarchy.js';
 
 const STORAGE_KEY = 'crosswalk-generator:v2';
 
@@ -292,34 +292,55 @@ export function addGroup(aLeafCodes, bLeafCodes, name, note = '', approx = false
 }
 
 /**
- * Flag leaf codes on one side as having no counterpart. Each code becomes its
- * *own* one-sided group (not bundled into a single multi-code group) — codes
- * marked no-match in the same click aren't actually related to each other,
- * unlike a real many-to-many mapping, so each gets its own row. Skips codes
- * that already belong to any existing group (real or no-match).
+ * Flag leaf codes on one side as having no counterpart. Codes aren't
+ * necessarily related just because they were flagged in the same action, so
+ * they're never bundled into one shared group — *except* when every leaf
+ * beneath a common ancestor is being flagged together, in which case they
+ * collapse into a single no-match row named for that ancestor (the same
+ * compaction `compactCodes` gives mapping-group chips), rather than one row
+ * per leaf. Two ancestors that are each fully flagged in the same action
+ * still produce two separate rows: they can't be represented by one shared
+ * parent unless *every* leaf under that shared parent was flagged too.
+ * Skips codes that already belong to any existing group (real or no-match).
+ *
+ * `tree` is optional and only used to find this compaction grouping; when
+ * omitted (or a code isn't part of it), that code falls back to its own row,
+ * exactly as if no tree were known — this function still never validates
+ * codes against a tree.
  * @param {'A'|'B'} side
+ * @param {string[]} leafCodes
  * @param {string} [note]  applied to every newly-created row
+ * @param {object|null} [tree]  result of buildHierarchy, for ancestor compaction
  * @returns {{ added: number, skipped: number }}
  */
-export function markNoMatch(side, leafCodes, note = '') {
+export function markNoMatch(side, leafCodes, note = '', tree = null) {
   let added = 0;
   let skipped = 0;
   mappings.update(($m) => {
-    let next = $m;
+    const claimed = new Set();
+    for (const g of $m) {
+      for (const c of g.aLeafCodes) claimed.add(c);
+      for (const c of g.bLeafCodes) claimed.add(c);
+    }
+    const unclaimed = [];
     for (const code of leafCodes) {
-      const already = next.some((g) => g.aLeafCodes.includes(code) || g.bLeafCodes.includes(code));
-      if (already) {
-        skipped++;
-        continue;
-      }
-      added++;
+      if (claimed.has(code)) skipped++;
+      else unclaimed.push(code);
+    }
+    added = unclaimed.length;
+    if (unclaimed.length === 0) return $m;
+
+    const groups = tree ? compactCodes(tree, new Set(unclaimed)) : unclaimed;
+    let next = $m;
+    for (const code of groups) {
+      const leaves = tree ? [...expandToLeaves(tree, [code])] : [code];
       next = [
         ...next,
         {
           id: newMappingId(),
           name: code,
-          aLeafCodes: side === 'A' ? [code] : [],
-          bLeafCodes: side === 'B' ? [code] : [],
+          aLeafCodes: side === 'A' ? leaves : [],
+          bLeafCodes: side === 'B' ? leaves : [],
           note,
           approx: false,
         },

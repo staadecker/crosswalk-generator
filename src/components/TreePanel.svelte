@@ -2,6 +2,7 @@
   import { tick, untrack } from 'svelte';
   import { flattenTree, expandToLeaves, leafCodesOf, compactCodes } from '../lib/hierarchy.js';
   import editIcon from '@material-design-icons/svg/filled/edit.svg?raw';
+  import { treePanel as strings } from '../lib/strings.js';
 
   let {
     system, // { name, tree, colMap, rows }
@@ -371,15 +372,15 @@
 
 <div class="panel" data-accent={accent}>
   <header>
-    <div class="side-label">System {accent}</div>
+    <div class="side-label">{strings.systemLabel(accent)}</div>
     <div class="titlerow">
       <div class="name-wrap">
         {#if editingName}
           <input
             class="name-input"
             value={system.name}
-            title="Dataset name — also used in exported filenames"
-            aria-label="Dataset name"
+            title={strings.datasetNameTitle}
+            aria-label={strings.datasetNameAriaLabel}
             use:autofocus
             onblur={(e) => stopEditName(e.target.value)}
             onkeydown={(e) => {
@@ -388,11 +389,11 @@
             }}
           />
         {:else}
-          <span class="name-label" title="Dataset name — also used in exported filenames">{system.name}</span>
+          <span class="name-label" title={strings.datasetNameTitle}>{system.name}</span>
           <button
             class="icon-btn"
-            title="Rename dataset"
-            aria-label="Rename {system.name}"
+            title={strings.renameDatasetTitle}
+            aria-label={strings.renameAriaLabel(system.name)}
             onclick={() => (editingName = true)}
           >
             {@html editIcon}
@@ -402,33 +403,33 @@
       <button
         class="danger small"
         onclick={() => onChange?.()}
-        title="Replace this file — deletes any mappings that reference it"
+        title={strings.replaceFileTitle}
       >
-        Replace file…
+        {strings.replaceFileButton}
       </button>
     </div>
     <div class="controls">
       <input
         type="search"
-        placeholder="Search code or title…"
+        placeholder={strings.searchPlaceholder}
         bind:value={query}
-        aria-label="Search {system.name}"
+        aria-label={strings.searchAriaLabel(system.name)}
       />
-      <button class="ghost small" onclick={expandAll} title="Expand all">Expand</button>
-      <button class="ghost small" onclick={collapseAll} title="Collapse all">Collapse</button>
+      <button class="ghost small" onclick={expandAll} title={strings.expandTitle}>{strings.expandButton}</button>
+      <button class="ghost small" onclick={collapseAll} title={strings.collapseTitle}>{strings.collapseButton}</button>
     </div>
     {#if selected.size > 0}
       <div class="meta">
         <span class="selcount">
-          {selected.size} selected
-          <button class="linky" onclick={() => onClear?.()}>Clear</button>
+          {strings.selectedCount(selected.size)}
+          <button class="linky" onclick={() => onClear?.()}>{strings.clearButton}</button>
         </span>
       </div>
     {/if}
     <div
       class="progress"
       role="progressbar"
-      aria-label="{system.name} mapping progress"
+      aria-label={strings.progressAriaLabel(system.name)}
       aria-valuenow={leafMapped}
       aria-valuemin="0"
       aria-valuemax={leafTotal}
@@ -436,23 +437,23 @@
       <div class="progress-track">
         <div class="progress-fill" class:complete={progressPct === 100} style="width: {progressPct}%"></div>
       </div>
-      <span class="progress-label">{leafMapped} / {leafTotal} mapped</span>
+      <span class="progress-label">{strings.progressLabel(leafMapped, leafTotal)}</span>
     </div>
   </header>
 
   {#if warnings.length}
     <details class="warnings">
-      <summary>{warnings.length} warning{warnings.length > 1 ? 's' : ''} while building hierarchy</summary>
+      <summary>{strings.warningsSummary(warnings.length)}</summary>
       <ul>
         {#each warnings.slice(0, 50) as w}<li>{w}</li>{/each}
-        {#if warnings.length > 50}<li>… and {warnings.length - 50} more.</li>{/if}
+        {#if warnings.length > 50}<li>{strings.moreWarnings(warnings.length - 50)}</li>{/if}
       </ul>
     </details>
   {/if}
 
   <div class="tree" role="tree" aria-label={system.name} aria-multiselectable="true" bind:this={treeEl}>
     {#if rows.length === 0}
-      <p class="empty">{#if query}No codes match “{query}”.{:else}No codes to show.{/if}</p>
+      <p class="empty">{#if query}{strings.noMatchQuery(query)}{:else}{strings.noCodesToShow}{/if}</p>
     {/if}
     {#each rows as { node, hasChildren } (node.code)}
       {@const count = counts.get(node.code) ?? 0}
@@ -491,7 +492,7 @@
         {#if hasChildren}
           <button
             class="twist"
-            aria-label={expanded.has(node.code) ? 'Collapse' : 'Expand'}
+            aria-label={expanded.has(node.code) ? strings.collapseButton : strings.expandButton}
             onclick={(e) => {
               e.stopPropagation();
               toggle(node.code);
@@ -505,17 +506,17 @@
         <span class="code">{#each highlight(node.code) as p}<span class:hit={p.hit}>{p.t}</span>{/each}</span>
         <span class="desc">{#each highlight(node.title) as p}<span class:hit={p.hit}>{p.t}</span>{/each}</span>
         {#if isNoMatch}
-          <span class="badge nomatch" title="Marked as no match">∅ no match</span>
+          <span class="badge nomatch" title={strings.noMatchBadgeTitle}>{strings.noMatchBadgeText}</span>
         {:else if !hasChildren}
           {#if count > 0}
-            <span class="badge full leaf" title="Mapped" aria-label="Mapped">✓</span>
+            <span class="badge full leaf" title={strings.mappedBadgeTitle} aria-label={strings.mappedBadgeTitle}>✓</span>
           {/if}
         {:else}
           <span
             class="badge"
             class:zero={progress.mapped === 0}
             class:full={progress.total > 0 && progress.mapped === progress.total}
-            title="{progress.mapped} / {progress.total} mapped"
+            title={strings.progressLabel(progress.mapped, progress.total)}
           >
             {progress.mapped}/{progress.total}
           </span>

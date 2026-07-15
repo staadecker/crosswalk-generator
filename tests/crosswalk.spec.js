@@ -688,6 +688,53 @@ test('hovering a mapped code bubble shows a fast custom tooltip with its title',
   await expect(tooltip).toHaveCount(0);
 });
 
+test('the fast tooltip stays within the viewport instead of overflowing past the edge', async ({ page }) => {
+  await page.goto('./');
+
+  const viewport = page.viewportSize();
+  const tooltip = page.locator('.fast-tooltip');
+
+  // Drive the shared tooltip store directly (via the dev-server's raw ES
+  // module) rather than depending on a real element happening to sit at the
+  // exact edge of the viewport — this reproduces "tooltip overflows the edge
+  // of the page" deterministically regardless of layout.
+  async function showAt(x, y, text = 'A fairly long tooltip explanation, long enough to risk overflowing an edge.') {
+    await page.evaluate(
+      async ([x, y, text]) => {
+        const { tooltipState } = await import('./src/lib/tooltip.js');
+        tooltipState.set({ text, x, y });
+      },
+      [x, y, text],
+    );
+  }
+
+  // The store update and the resulting reposition-by-measurement land in
+  // separate render passes, so poll rather than reading boundingBox() once
+  // right after the evaluate() call resolves.
+  async function expectClampedX() {
+    await expect
+      .poll(async () => {
+        const box = await tooltip.boundingBox();
+        return box.x >= 0 && box.x + box.width <= viewport.width;
+      })
+      .toBe(true);
+  }
+
+  // Pinned hard against the right edge.
+  await showAt(viewport.width - 2, 200);
+  await expect(tooltip).toBeVisible();
+  await expectClampedX();
+
+  // Pinned hard against the left edge.
+  await showAt(2, 200);
+  await expectClampedX();
+
+  // Pinned near the top — must flip below its anchor instead of going
+  // negative off the top of the page.
+  await showAt(200, 2, 'Near the top');
+  await expect.poll(async () => (await tooltip.boundingBox()).y).toBeGreaterThanOrEqual(0);
+});
+
 test('replacing a file deletes mappings that reference it, after confirmation', async ({ page }) => {
   await page.goto('./');
   await page.evaluate(() => localStorage.clear());
@@ -1165,6 +1212,72 @@ test('marking several codes no-match at once creates a distinct row per code, no
   // Each row holds only its own single code, not both.
   await expect(row11121.locator('.bubble')).toHaveCount(1);
   await expect(row11211.locator('.bubble')).toHaveCount(1);
+});
+
+test('flagging every leaf under a shared ancestor as no-match together collapses to one row, not one per leaf', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
+
+  await page.goto('./');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+
+  const csvInput = page.locator('input[type=file][accept*="csv"]');
+  await csvInput.first().setInputFiles(A);
+  await page.getByLabel('Data includes parent codes').check();
+  await page.getByRole('button', { name: 'Build hierarchy' }).click();
+  await csvInput.first().setInputFiles(B);
+  await page.getByLabel('Data includes parent codes').check();
+  await page.getByRole('button', { name: 'Build hierarchy' }).click();
+  for (const b of await page.locator('.controls button', { hasText: 'Expand' }).all()) await b.click();
+
+  // 1111 has exactly two leaf children, 11111 and 11112 (see the "select
+  // unmapped" test above for this sample's shape). Nothing is mapped yet, so
+  // clicking the ancestor selects both of them; marking them no-match
+  // together must produce one row for "1111" (TODO.md: e.g. code 07 with
+  // leaves 07.1/07.21/07.29 should be one entry, not three), not two rows.
+  await page.locator('.node', { hasText: /\b1111\b/ }).first().click();
+  await expect(page.locator('.node.selected')).toHaveCount(1);
+  await page.getByRole('button', { name: /Mark 1 as no match/ }).click();
+
+  await expect(page.locator('.row')).toHaveCount(1);
+  await expect(page.locator('.row .bubble-code')).toHaveText('1111');
+
+  expect(errors, `browser errors:\n${errors.join('\n')}`).toEqual([]);
+});
+
+test('two separately fully-covered ancestors flagged no-match together still produce two rows, not one merged parent row', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
+
+  await page.goto('./');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+
+  const csvInput = page.locator('input[type=file][accept*="csv"]');
+  await csvInput.first().setInputFiles(A);
+  await page.getByLabel('Data includes parent codes').check();
+  await page.getByRole('button', { name: 'Build hierarchy' }).click();
+  await csvInput.first().setInputFiles(B);
+  await page.getByLabel('Data includes parent codes').check();
+  await page.getByRole('button', { name: 'Build hierarchy' }).click();
+  for (const b of await page.locator('.controls button', { hasText: 'Expand' }).all()) await b.click();
+
+  // 1111 (leaves 11111/11112) and 112 (sole leaf 11211) are disjoint branches
+  // under the shared ancestor 11 — but 11's third branch (1112's leaf 11121)
+  // is left unflagged, so 11 itself is *not* fully covered. Flagging both
+  // fully-covered branches in one action must still create two separate
+  // rows, not one row merged all the way up to "11".
+  await page.locator('.node', { hasText: /\b1111\b/ }).first().click();
+  await page.locator('.node', { hasText: /\b112\b/ }).first().click();
+  await expect(page.locator('.node.selected')).toHaveCount(2);
+  await page.getByRole('button', { name: /Mark 2 as no match/ }).click();
+
+  await expect(page.locator('.row')).toHaveCount(2);
+  const bubbleCodes = (await page.locator('.row .bubble-code').allTextContents()).sort();
+  expect(bubbleCodes).toEqual(['1111', '112']);
+
+  expect(errors, `browser errors:\n${errors.join('\n')}`).toEqual([]);
 });
 
 test('the mapping relationship toggle switches between equal and approximately-equal, and it\'s exported', async ({ page }) => {

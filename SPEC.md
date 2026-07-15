@@ -323,6 +323,16 @@ Each loaded system is shown as a collapsible, searchable tree.
 - Each flagged code becomes its own separate no-match entry, even if several
   were flagged in one action — codes marked no-match together are not
   necessarily related, so they must never be bundled into one shared group.
+  - Exception: when every leaf beneath a common ancestor ends up flagged
+    together in one action, those leaves collapse into a single no-match
+    entry for that ancestor (the same "fully covered" compaction used for
+    mapping-group chips — see "Editing an existing mapping") instead of one
+    row per leaf.
+  - Two ancestors that are each fully flagged in the same action still
+    produce two separate entries — e.g. flagging every leaf under both `07`
+    and `08` together gives two rows, one per ancestor, not one merged row;
+    they can't be represented by a single shared parent unless every leaf
+    under that shared parent was flagged too.
 
 ### One real mapping per code, per side
 
@@ -352,6 +362,10 @@ Each loaded system is shown as a collapsible, searchable tree.
   - This same tooltip is reused anywhere else that needs a quick hover
     explanation (e.g. the column-mapping "?" hints — see "Uploading and
     preparing a system").
+  - The tooltip always stays fully within the viewport: it clamps
+    horizontally instead of overflowing past the left/right edge, and flips
+    to appear below its anchor instead of above when there isn't enough room
+    above (e.g. an anchor near the top of the page).
 - **Drag onto a group's side** adds the code to that group (subject to the
   one-real-mapping-per-side rule).
 - **Drag a chip between groups' same side** moves it (not duplicate), and that

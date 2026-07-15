@@ -282,6 +282,39 @@ check(nm3.added === 0 && nm3.skipped === 1, 'no-match is skipped for an already-
   check(g11121.aLeafCodes.length === 1 && g11211.aLeafCodes.length === 1, 'each no-match row holds exactly its own code');
 }
 
+// Flagging every leaf under a shared ancestor together (passing the tree)
+// collapses them into one no-match row named for that ancestor, instead of
+// one row per leaf (TODO.md: code 07 with leaves 07.1/07.21/07.29 should be
+// one entry, not three).
+{
+  const saved = get(mappings);
+  mappings.set([]);
+  // 1111 has exactly two leaf children: 11111 and 11112 (see expandToLeaves
+  // checks above).
+  const r = markNoMatch('A', ['11111', '11112'], '', sysA.tree);
+  check(r.added === 2 && r.skipped === 0, 'both leaves under 1111 are marked no match');
+  check(get(mappings).length === 1, 'flagging every leaf under a shared ancestor together creates one no-match row, not one per leaf');
+  const g1111 = get(mappings)[0];
+  check(g1111.name === '1111', 'the collapsed no-match row is named for the fully-covered ancestor');
+  check(g1111.aLeafCodes.slice().sort().join(',') === '11111,11112', 'the collapsed row still holds both underlying leaf codes');
+  mappings.set(saved);
+}
+
+// Two separate ancestors that are each fully flagged in the same action still
+// produce two rows, not one merged row — they can't be represented by a
+// single shared parent since 1112's own leaf (11121) is left out here.
+{
+  const saved = get(mappings);
+  mappings.set([]);
+  const r = markNoMatch('A', ['11111', '11112', '11211'], '', sysA.tree);
+  check(r.added === 3, 'all three leaves across the two ancestors are marked no match');
+  const names = get(mappings)
+    .map((g) => g.name)
+    .sort();
+  check(names.join(',') === '1111,112', 'two separately fully-covered ancestors (1111 and 112) produce two rows, not one merged row');
+  mappings.set(saved);
+}
+
 // A real mapping added later removes (or shrinks) an existing no-match entry for that code.
 addGroup(['54151'], ['69.20'], 'Computer Systems Design and Related Services');
 check(

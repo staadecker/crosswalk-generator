@@ -82,6 +82,15 @@ https://svelte.dev/llms-small.txt for a condensed reference if unsure.
 - `src/lib/tooltip.js` — the shared `fastTooltip` action + `tooltipState`
   store behind the app's fast-appearing hover tooltip; rendered by the single
   `<FastTooltip/>` mounted in `App.svelte`.
+- `src/lib/strings.js` — all user-facing copy (static strings and small
+  template functions for interpolation/pluralization), organized as one
+  exported object per consuming component/module (e.g. `toolbar`,
+  `treePanel`, `hierarchy`); a `common` section holds text shared across
+  files (e.g. the "A"/"B" fallback dataset labels). Put new user-facing text
+  here rather than inlining it in a `.svelte` file or another `src/lib/*.js`
+  file, so copy can be edited in one place without hunting through markup.
+- `src/lib/text.js` — the shared `pluralize(n, word, suffix)` helper used by
+  `strings.js` template functions to dedupe singular/plural suffix logic.
 - `src/components/` — UI: file upload → column mapping → tree panel per
   system (with progress bar, sample-data shortcuts, grey-out of mapped
   entries, an editable dataset name used in export filenames), the mapping
