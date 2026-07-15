@@ -180,4 +180,4 @@ npm test              # logic tests + Playwright e2e
   slow for quickly scanning many codes or reading a field hint. Reuse
   `fastTooltip` (don't add a native `title` back, and don't reimplement a
   local copy) if you add more hoverable elements elsewhere — see its use in
-  `MappingList.svelte` (code bubbles) and `ColumnMapper.svelte` ("?" hints).
+  `MappingList.svelte` (code bubbles).

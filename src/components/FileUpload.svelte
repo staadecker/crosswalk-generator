@@ -47,7 +47,6 @@
     />
   </svg>
   <div class="label">{label}</div>
-  <div class="hint">{strings.dropHint}</div>
   {#if hint}<div class="hint muted">{hint}</div>{/if}
   <input bind:this={inputEl} type="file" accept=".csv,text/csv" onchange={onInputChange} hidden />
 </div>
@@ -60,6 +59,7 @@
     text-align: center;
     color: var(--text-muted);
     background: var(--surface);
+    cursor: pointer;
     transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
   }
   .dropzone:hover,

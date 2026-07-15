@@ -21,6 +21,24 @@ async function dragAndDrop(sourceLocator, targetLocator) {
   );
 }
 
+/** Simulate a native HTML5 file drop (as opposed to the file-picker <input>,
+ * which is exercised elsewhere via setInputFiles) onto a dropzone locator. The
+ * browser's `accept=".csv"` on the underlying <input> is not enforced on
+ * drag-and-drop, so this is how a non-CSV file actually reaches the app. */
+async function dropFile(dropzoneLocator, fileName, mimeType, contents) {
+  const target = await dropzoneLocator.elementHandle();
+  await dropzoneLocator.page().evaluate(
+    ([tgt, name, type, contents]) => {
+      const file = new File([contents], name, { type });
+      const dataTransfer = new DataTransfer();
+      dataTransfer.items.add(file);
+      tgt.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer }));
+      tgt.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer }));
+    },
+    [target, fileName, mimeType, contents],
+  );
+}
+
 /** Click the toolbar's Export button, agree to the citation prompt, confirm the
  * modal's own Export button, and resolve with the triggered download. */
 async function exportViaCiteModal(page) {
@@ -58,13 +76,13 @@ test('build hierarchies, map codes as groups, persist, and export a crosswalk', 
   // naics-sample.csv already has an explicit row for every ancestor level, so
   // treat it as "parent codes already included" rather than auto-generating
   // (which would otherwise wrap every real ancestor in a "<code> (group)" node).
-  await page.getByLabel('Data includes parent codes').check();
+  await page.getByLabel('Data includes only lowest-level codes (auto-group codes)').uncheck();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
   await expect(page.locator('.panel[data-accent="A"] .name-label')).toBeVisible(); // NAICS
 
   await csvInput.first().setInputFiles(B);
   // nace-sample.csv is likewise already fully populated with every ancestor level.
-  await page.getByLabel('Data includes parent codes').check();
+  await page.getByLabel('Data includes only lowest-level codes (auto-group codes)').uncheck();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
   await expect(page.locator('.panel[data-accent="B"] .name-label')).toBeVisible(); // NACE
 
@@ -206,6 +224,24 @@ test('build hierarchies, map codes as groups, persist, and export a crosswalk', 
   expect(errors, `browser errors:\n${errors.join('\n')}`).toEqual([]);
 });
 
+test('dropping a non-CSV file shows an error instead of proceeding to column mapping', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
+
+  await page.goto('./');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+
+  const dropzone = page.locator('.dropzone').first();
+  await dropFile(dropzone, 'photo.png', 'image/png', [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+  await expect(page.locator('.status.error')).toHaveText('"photo.png" is not a .csv file.');
+  // Must not have advanced past the upload step.
+  await expect(page.getByRole('button', { name: 'Build hierarchy' })).not.toBeVisible();
+
+  expect(errors, `browser errors:\n${errors.join('\n')}`).toEqual([]);
+});
+
 test('a "System A"/"System B" label is always visible, before and after a dataset is loaded', async ({ page }) => {
   await page.goto('./');
   await page.evaluate(() => localStorage.clear());
@@ -217,7 +253,7 @@ test('a "System A"/"System B" label is always visible, before and after a datase
 
   const csvInput = page.locator('input[type=file][accept*="csv"]');
   await csvInput.first().setInputFiles(A);
-  await page.getByLabel('Data includes parent codes').check();
+  await page.getByLabel('Data includes only lowest-level codes (auto-group codes)').uncheck();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
 
   // Once loaded, the tree panel shows the dataset's own custom name as the
@@ -237,7 +273,7 @@ test('the demo-data banner loads a demo pair into both panels in one click, and 
   await expect(banner).toBeVisible();
   await expect(page.getByRole('button', { name: 'Build hierarchy' })).toHaveCount(0);
 
-  await page.getByRole('button', { name: 'Try our demo data' }).click();
+  await page.getByRole('button', { name: 'Try with demo data' }).click();
   await expect(page.getByRole('button', { name: 'Build hierarchy' })).toHaveCount(0);
   await expect(page.locator('.panel[data-accent="A"] .name-label')).toHaveText('NAICS industry classification system');
   await expect(page.locator('.panel[data-accent="B"] .name-label')).toHaveText('NACE industry classification system');
@@ -257,7 +293,7 @@ test('the demo-data banner has no dismiss button and reappears once both systems
 
   const csvInput = page.locator('input[type=file][accept*="csv"]');
   await csvInput.first().setInputFiles(A);
-  await page.getByLabel('Data includes parent codes').check();
+  await page.getByLabel('Data includes only lowest-level codes (auto-group codes)').uncheck();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
   await expect(banner).toHaveCount(0); // gone as soon as one side has data
 
@@ -278,7 +314,7 @@ test('Restart brings the demo-data banner back', async ({ page }) => {
   const banner = page.locator('.demo-banner');
   await expect(banner).toBeVisible();
 
-  await page.getByRole('button', { name: 'Try our demo data' }).click();
+  await page.getByRole('button', { name: 'Try with demo data' }).click();
   await expect(banner).toHaveCount(0);
 
   page.once('dialog', (d) => d.accept());
@@ -294,7 +330,7 @@ test('the full NAICS 2022 sample (loaded via the demo banner) auto-nests without
   await page.evaluate(() => localStorage.clear());
   await page.reload();
 
-  await page.getByRole('button', { name: 'Try our demo data' }).click();
+  await page.getByRole('button', { name: 'Try with demo data' }).click();
   await expect(page.locator('.panel[data-accent="A"] .name-label')).toBeVisible();
 
   for (const b of await page.locator('.panel[data-accent="A"] .controls button', { hasText: 'Expand' }).all()) {
@@ -322,11 +358,11 @@ test('"select unmapped" compacts to the topmost code and auto-expands so the sel
   // naics-sample.csv already has an explicit row for every ancestor level, so
   // treat it as "parent codes already included" rather than auto-generating
   // (which would otherwise wrap every real ancestor in a "<code> (group)" node).
-  await page.getByLabel('Data includes parent codes').check();
+  await page.getByLabel('Data includes only lowest-level codes (auto-group codes)').uncheck();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
   await csvInput.first().setInputFiles(B);
   // nace-sample.csv is likewise already fully populated with every ancestor level.
-  await page.getByLabel('Data includes parent codes').check();
+  await page.getByLabel('Data includes only lowest-level codes (auto-group codes)').uncheck();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
 
   const panelA = page.locator('.panel[data-accent="A"]');
@@ -388,13 +424,13 @@ test('auto-detect level builds a hierarchy without picking a level column', asyn
 
   const csvInput = page.locator('input[type=file][accept*="csv"]');
   await csvInput.first().setInputFiles(A);
-  // The level dropdown starts on "Auto-detect from code structure" by
+  // The level dropdown starts on "None (auto-detect from code structure)" by
   // default, so no column needs to be picked here.
   // naics-sample.csv already has an explicit row for every ancestor level, so
   // it's a "parent codes already included" dataset — auto-generating parent
   // codes (the default) would treat every real ancestor code as colliding
   // with itself and wrap it in a spurious "<code> (group)" node.
-  await page.getByLabel('Data includes parent codes').check();
+  await page.getByLabel('Data includes only lowest-level codes (auto-group codes)').uncheck();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
 
   for (const b of await page.locator('.controls button', { hasText: 'Expand' }).all()) await b.click();
@@ -416,49 +452,33 @@ test('the column-mapping step groups fields into "Select columns"/"Configure nes
   await expect(page.getByRole('heading', { name: 'Select columns' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Configure nesting' })).toBeVisible();
 
-  const parentCheckbox = page.getByLabel('Data includes parent codes');
-  const levelSelect = page.getByLabel('Level column');
+  const lowestLevelCheckbox = page.getByLabel('Data includes only lowest-level codes (auto-group codes)');
+  const levelSelect = page.getByLabel('Column specifying the level of codes');
   const hint = page.locator('.mapper .hint');
   const hintText = await hint.textContent();
 
   // The level column can't do anything useful without an explicit row for
   // every ancestor level already in the file, so it stays disabled (and on
-  // "Auto-detect") until the user confirms the file has that.
-  await expect(parentCheckbox).not.toBeChecked();
+  // "Auto-detect") until the user confirms the file has that (i.e. unchecks
+  // "only lowest-level codes", which is checked/auto-generate by default).
+  await expect(lowestLevelCheckbox).toBeChecked();
   await expect(levelSelect).toBeDisabled();
   await expect(levelSelect).toHaveValue('');
 
-  await parentCheckbox.check();
+  await lowestLevelCheckbox.uncheck();
   await expect(levelSelect).toBeEnabled();
 
   // Regression: this hint used to swap to a different message depending on
   // the checkbox state, which read as the UI changing its mind mid-explanation.
   await expect(hint).toHaveText(hintText);
 
-  // Unchecking disables the select again and resets it back to auto-detect,
+  // Re-checking disables the select again and resets it back to auto-detect,
   // since an explicit level column is no longer a valid choice.
   await levelSelect.selectOption({ index: 1 });
-  await parentCheckbox.uncheck();
+  await lowestLevelCheckbox.check();
   await expect(levelSelect).toBeDisabled();
   await expect(levelSelect).toHaveValue('');
   await expect(hint).toHaveText(hintText);
-});
-
-test('column-mapping "?" hints use the fast custom tooltip, not the slow native title', async ({ page }) => {
-  await page.goto('./');
-  await page.evaluate(() => localStorage.clear());
-  await page.reload();
-
-  const csvInput = page.locator('input[type=file][accept*="csv"]');
-  await csvInput.first().setInputFiles(A);
-
-  const codeHelp = page.locator('.mapper label', { hasText: 'Code column' }).locator('.help');
-  await expect(codeHelp).toHaveCount(1);
-  await expect(codeHelp).not.toHaveAttribute('title');
-
-  await codeHelp.hover();
-  await expect(page.locator('.fast-tooltip')).toBeVisible();
-  await expect(page.locator('.fast-tooltip')).toContainText('unique identifier');
 });
 
 test('auto-generate parent codes disambiguates a code that collides with an implied ancestor', async ({ page }) => {
@@ -475,12 +495,13 @@ test('auto-generate parent codes disambiguates a code that collides with an impl
     mimeType: 'text/csv',
     buffer: Buffer.from('code,title\n20,Twenty\n20.w,Twenty W\n'),
   });
-  // The level dropdown is already on "Auto-detect from code structure" by default.
-  // Leave "Data includes parent codes" unchecked (the default, i.e. auto-generate):
-  // "20" is both a real code and the natural ancestor of "20.w", so it's
-  // "already taken" and should be replaced by a synthesized, blank-title
-  // "20 (group)" node with both real codes nested under it as siblings.
-  await expect(page.getByLabel('Data includes parent codes')).not.toBeChecked();
+  // The level dropdown is already on "None (auto-detect from code structure)" by default.
+  // Leave "Data includes only lowest-level codes (auto-group codes)" checked
+  // (the default, i.e. auto-generate): "20" is both a real code and the
+  // natural ancestor of "20.w", so it's "already taken" and should be
+  // replaced by a synthesized, blank-title "20 (group)" node with both real
+  // codes nested under it as siblings.
+  await expect(page.getByLabel('Data includes only lowest-level codes (auto-group codes)')).toBeChecked();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
 
   for (const b of await page.locator('.controls button', { hasText: 'Expand' }).all()) await b.click();
@@ -506,11 +527,11 @@ test('a code already mapped on one side can never be selected for a second mappi
   // naics-sample.csv already has an explicit row for every ancestor level, so
   // treat it as "parent codes already included" rather than auto-generating
   // (which would otherwise wrap every real ancestor in a "<code> (group)" node).
-  await page.getByLabel('Data includes parent codes').check();
+  await page.getByLabel('Data includes only lowest-level codes (auto-group codes)').uncheck();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
   await csvInput.first().setInputFiles(B);
   // nace-sample.csv is likewise already fully populated with every ancestor level.
-  await page.getByLabel('Data includes parent codes').check();
+  await page.getByLabel('Data includes only lowest-level codes (auto-group codes)').uncheck();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
   for (const b of await page.locator('.controls button', { hasText: 'Expand' }).all()) await b.click();
 
@@ -568,11 +589,11 @@ test('renaming a dataset is reflected in the exported crosswalk filename', async
   // naics-sample.csv already has an explicit row for every ancestor level, so
   // treat it as "parent codes already included" rather than auto-generating
   // (which would otherwise wrap every real ancestor in a "<code> (group)" node).
-  await page.getByLabel('Data includes parent codes').check();
+  await page.getByLabel('Data includes only lowest-level codes (auto-group codes)').uncheck();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
   await csvInput.first().setInputFiles(B);
   // nace-sample.csv is likewise already fully populated with every ancestor level.
-  await page.getByLabel('Data includes parent codes').check();
+  await page.getByLabel('Data includes only lowest-level codes (auto-group codes)').uncheck();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
 
   // Rename both datasets: click each panel's edit button to reveal the name
@@ -608,11 +629,11 @@ test('mapping note stays compact static text until explicitly opened for editing
   // naics-sample.csv already has an explicit row for every ancestor level, so
   // treat it as "parent codes already included" rather than auto-generating
   // (which would otherwise wrap every real ancestor in a "<code> (group)" node).
-  await page.getByLabel('Data includes parent codes').check();
+  await page.getByLabel('Data includes only lowest-level codes (auto-group codes)').uncheck();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
   await csvInput.first().setInputFiles(B);
   // nace-sample.csv is likewise already fully populated with every ancestor level.
-  await page.getByLabel('Data includes parent codes').check();
+  await page.getByLabel('Data includes only lowest-level codes (auto-group codes)').uncheck();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
   for (const b of await page.locator('.controls button', { hasText: 'Expand' }).all()) await b.click();
 
@@ -660,11 +681,11 @@ test('hovering a mapped code bubble shows a fast custom tooltip with its title',
   // naics-sample.csv already has an explicit row for every ancestor level, so
   // treat it as "parent codes already included" rather than auto-generating
   // (which would otherwise wrap every real ancestor in a "<code> (group)" node).
-  await page.getByLabel('Data includes parent codes').check();
+  await page.getByLabel('Data includes only lowest-level codes (auto-group codes)').uncheck();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
   await csvInput.first().setInputFiles(B);
   // nace-sample.csv is likewise already fully populated with every ancestor level.
-  await page.getByLabel('Data includes parent codes').check();
+  await page.getByLabel('Data includes only lowest-level codes (auto-group codes)').uncheck();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
   for (const b of await page.locator('.controls button', { hasText: 'Expand' }).all()) await b.click();
 
@@ -745,11 +766,11 @@ test('replacing a file deletes mappings that reference it, after confirmation', 
   // naics-sample.csv already has an explicit row for every ancestor level, so
   // treat it as "parent codes already included" rather than auto-generating
   // (which would otherwise wrap every real ancestor in a "<code> (group)" node).
-  await page.getByLabel('Data includes parent codes').check();
+  await page.getByLabel('Data includes only lowest-level codes (auto-group codes)').uncheck();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
   await csvInput.first().setInputFiles(B);
   // nace-sample.csv is likewise already fully populated with every ancestor level.
-  await page.getByLabel('Data includes parent codes').check();
+  await page.getByLabel('Data includes only lowest-level codes (auto-group codes)').uncheck();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
   for (const b of await page.locator('.controls button', { hasText: 'Expand' }).all()) await b.click();
 
@@ -774,7 +795,7 @@ test('replacing a file deletes mappings that reference it, after confirmation', 
   });
   await replaceBtn.click();
   await expect(page.locator('.list header h3 .count')).toHaveText('0');
-  await expect(page.locator('.setup[data-accent="A"] .label')).toHaveText('Upload System A CSV');
+  await expect(page.locator('.setup[data-accent="A"] .label')).toHaveText('Upload list of codes');
 });
 
 test('dragging a bubble in the Mappings pane onto another group moves it there', async ({ page }) => {
@@ -787,11 +808,11 @@ test('dragging a bubble in the Mappings pane onto another group moves it there',
   // naics-sample.csv already has an explicit row for every ancestor level, so
   // treat it as "parent codes already included" rather than auto-generating
   // (which would otherwise wrap every real ancestor in a "<code> (group)" node).
-  await page.getByLabel('Data includes parent codes').check();
+  await page.getByLabel('Data includes only lowest-level codes (auto-group codes)').uncheck();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
   await csvInput.first().setInputFiles(B);
   // nace-sample.csv is likewise already fully populated with every ancestor level.
-  await page.getByLabel('Data includes parent codes').check();
+  await page.getByLabel('Data includes only lowest-level codes (auto-group codes)').uncheck();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
   for (const b of await page.locator('.controls button', { hasText: 'Expand' }).all()) await b.click();
 
@@ -845,11 +866,11 @@ test('per-node progress fraction badges, mapped-code tooltip/cursor, auto-collap
   // naics-sample.csv already has an explicit row for every ancestor level, so
   // treat it as "parent codes already included" rather than auto-generating
   // (which would otherwise wrap every real ancestor in a "<code> (group)" node).
-  await page.getByLabel('Data includes parent codes').check();
+  await page.getByLabel('Data includes only lowest-level codes (auto-group codes)').uncheck();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
   await csvInput.first().setInputFiles(B);
   // nace-sample.csv is likewise already fully populated with every ancestor level.
-  await page.getByLabel('Data includes parent codes').check();
+  await page.getByLabel('Data includes only lowest-level codes (auto-group codes)').uncheck();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
   const panelA = page.locator('.panel[data-accent="A"]');
   for (const b of await page.locator('.controls button', { hasText: 'Expand' }).all()) await b.click();
@@ -935,7 +956,7 @@ test('search auto-expand retracts on clear instead of leaking into a permanently
 
   const csvInput = page.locator('input[type=file][accept*="csv"]');
   await csvInput.first().setInputFiles(A);
-  await page.getByLabel('Data includes parent codes').check();
+  await page.getByLabel('Data includes only lowest-level codes (auto-group codes)').uncheck();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
 
   const panelA = page.locator('.panel[data-accent="A"]');
@@ -993,7 +1014,7 @@ test('the Collapse button actually collapses the top-level roots, and manually c
   // collapsed — 8 rows total right after building (3 roots + 5 children).
   const csvInput = page.locator('input[type=file][accept*="csv"]');
   await csvInput.first().setInputFiles(A);
-  await page.getByLabel('Data includes parent codes').check();
+  await page.getByLabel('Data includes only lowest-level codes (auto-group codes)').uncheck();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
 
   const panelA = page.locator('.panel[data-accent="A"]');
@@ -1038,10 +1059,10 @@ test('clicking a code bubble in the Mappings pane reveals and flashes it in its 
 
   const csvInput = page.locator('input[type=file][accept*="csv"]');
   await csvInput.first().setInputFiles(A);
-  await page.getByLabel('Data includes parent codes').check();
+  await page.getByLabel('Data includes only lowest-level codes (auto-group codes)').uncheck();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
   await csvInput.first().setInputFiles(B);
-  await page.getByLabel('Data includes parent codes').check();
+  await page.getByLabel('Data includes only lowest-level codes (auto-group codes)').uncheck();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
 
   const panelA = page.locator('.panel[data-accent="A"]');
@@ -1086,10 +1107,10 @@ test('hovering a mapped code scrolls its Mappings-pane row into view', async ({ 
 
   const csvInput = page.locator('input[type=file][accept*="csv"]');
   await csvInput.first().setInputFiles(A);
-  await page.getByLabel('Data includes parent codes').check();
+  await page.getByLabel('Data includes only lowest-level codes (auto-group codes)').uncheck();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
   await csvInput.first().setInputFiles(B);
-  await page.getByLabel('Data includes parent codes').check();
+  await page.getByLabel('Data includes only lowest-level codes (auto-group codes)').uncheck();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
 
   const panelA = page.locator('.panel[data-accent="A"]');
@@ -1144,11 +1165,11 @@ test('long titles wrap instead of being cut off, and the progress bar turns gree
   // naics-sample.csv already has an explicit row for every ancestor level, so
   // treat it as "parent codes already included" rather than auto-generating
   // (which would otherwise wrap every real ancestor in a "<code> (group)" node).
-  await page.getByLabel('Data includes parent codes').check();
+  await page.getByLabel('Data includes only lowest-level codes (auto-group codes)').uncheck();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
   await csvInput.first().setInputFiles(B);
   // nace-sample.csv is likewise already fully populated with every ancestor level.
-  await page.getByLabel('Data includes parent codes').check();
+  await page.getByLabel('Data includes only lowest-level codes (auto-group codes)').uncheck();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
   const panelA = page.locator('.panel[data-accent="A"]');
   for (const b of await panelA.locator('.controls button', { hasText: 'Expand' }).all()) await b.click();
@@ -1224,10 +1245,10 @@ test('flagging every leaf under a shared ancestor as no-match together collapses
 
   const csvInput = page.locator('input[type=file][accept*="csv"]');
   await csvInput.first().setInputFiles(A);
-  await page.getByLabel('Data includes parent codes').check();
+  await page.getByLabel('Data includes only lowest-level codes (auto-group codes)').uncheck();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
   await csvInput.first().setInputFiles(B);
-  await page.getByLabel('Data includes parent codes').check();
+  await page.getByLabel('Data includes only lowest-level codes (auto-group codes)').uncheck();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
   for (const b of await page.locator('.controls button', { hasText: 'Expand' }).all()) await b.click();
 
@@ -1256,10 +1277,10 @@ test('two separately fully-covered ancestors flagged no-match together still pro
 
   const csvInput = page.locator('input[type=file][accept*="csv"]');
   await csvInput.first().setInputFiles(A);
-  await page.getByLabel('Data includes parent codes').check();
+  await page.getByLabel('Data includes only lowest-level codes (auto-group codes)').uncheck();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
   await csvInput.first().setInputFiles(B);
-  await page.getByLabel('Data includes parent codes').check();
+  await page.getByLabel('Data includes only lowest-level codes (auto-group codes)').uncheck();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
   for (const b of await page.locator('.controls button', { hasText: 'Expand' }).all()) await b.click();
 
@@ -1472,10 +1493,10 @@ test('exporting requires agreeing to a citation prompt before the download happe
 
   const csvInput = page.locator('input[type=file][accept*="csv"]');
   await csvInput.first().setInputFiles(A);
-  await page.getByLabel('Data includes parent codes').check();
+  await page.getByLabel('Data includes only lowest-level codes (auto-group codes)').uncheck();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
   await csvInput.first().setInputFiles(B);
-  await page.getByLabel('Data includes parent codes').check();
+  await page.getByLabel('Data includes only lowest-level codes (auto-group codes)').uncheck();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
   for (const b of await page.locator('.controls button', { hasText: 'Expand' }).all()) await b.click();
   await page.locator('.node', { hasText: '11111' }).first().click();

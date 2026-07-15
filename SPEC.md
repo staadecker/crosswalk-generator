@@ -44,9 +44,15 @@ if you only care about behavior.
 
 - The user provides each system by uploading a CSV and completing column
   mapping (below).
+- A file is accepted only if its name ends in `.csv` (case-insensitive) —
+  checked before parsing, whether the file arrives via the file-picker
+  `<input>` or drag-and-drop onto the dropzone (the browser's own
+  `accept=".csv"` filter on the `<input>` is not enforced on drop, so this
+  check is what actually stops e.g. an accidentally-dropped image). A
+  rejected file shows an inline error and never reaches column mapping.
 - **Demo-data banner**
   - Appears near the top whenever neither side has data.
-  - Offers a one-click "Try our demo data" link that loads a bundled demo
+  - Offers a one-click "Try with demo data" link that loads a bundled demo
     pair (one classification into A, one into B) into a built hierarchy on
     both sides at once — no column-mapping step, no per-side choice.
   - Has no dismiss control; visibility is purely a function of whether either
@@ -66,45 +72,53 @@ if you only care about behavior.
   - The app should guess which uploaded column plays which role, pre-filling a
     choice the user can confirm or override before building.
   - A guess must only pre-fill; it must never block upload.
-- Every field has a small "?" hover hint giving a short explanation, so a
-  first-time user need not understand the data model to get through upload.
+- The code/title/description column labels are self-explanatory ("Column
+  containing the codes", etc.) and carry no "?" hover hint. The "Data includes
+  only lowest-level codes (auto-group codes)" checkbox is explained by its own
+  always-visible static hint text — see "Level dropdown and lowest-level-codes
+  checkbox."
 
 ### Column-mapping layout
 
 - Fields are grouped into two labeled sections, in this order:
   1. **Select columns** — code column, title column, description column.
-  2. **Configure nesting** — the "Data includes parent codes" checkbox, then
-     the level column.
+  2. **Configure nesting** — the "Data includes only lowest-level codes
+     (auto-group codes)" checkbox, then the level column.
 - Nesting comes last since most users leave it on its defaults.
 
-### Level dropdown and parent-codes checkbox
+### Level dropdown and lowest-level-codes checkbox
 
 - **Level dropdown** — the one exception to "guess pre-fills a choice."
-  - Always starts on "Auto-detect from code structure," regardless of what the
-    guesser thinks looks level-shaped.
+  - Always starts on "None (auto-detect from code structure)," regardless of
+    what the guesser thinks looks level-shaped.
   - The user must deliberately pick a field to switch to an explicit level
     column.
-  - Enabled only while the "Data includes parent codes" checkbox above it is
-    checked; force-reset back to auto-detect the moment that checkbox is
-    unchecked.
+  - Enabled only while the "Data includes only lowest-level codes (auto-group
+    codes)" checkbox above it is unchecked; force-reset back to auto-detect
+    the moment that checkbox is checked.
     - Rationale: an explicit level column only makes sense when every ancestor
-      level already has its own row (see "Explicit level column"), which is
-      exactly what the checkbox asserts. Auto-generating missing parents is
+      level already has its own row (see "Explicit level column") — i.e. the
+      file is *not* lowest-level-codes-only, which is exactly what the
+      checkbox (unchecked) asserts. Auto-generating missing parents is
       supported only for auto-detected levels.
-- **"Data includes parent codes" checkbox**
-  - Unchecked by default (i.e. auto-generate — see auto-detect parent
-    handling).
+- **"Data includes only lowest-level codes (auto-group codes)" checkbox**
+  - Checked by default (i.e. auto-generate parent codes — see auto-detect
+    parent handling); most files only contain leaf-level rows.
+  - Uncheck it when the file already has an explicit row for every ancestor
+    level.
   - Always visible, not only while the level dropdown is on auto-detect.
-  - Its explanation is plain, static text next to the checkbox, not only
-    behind the "?" hint, and does not change with the checkbox's state — the
-    behavior it describes changes the shape of the resulting tree, so it
-    deserves a stable, always-visible explanation rather than a hover-only one
-    that shifts as the user toggles the box.
-- **"?" hints** — every field's hint (including the level dropdown's and the
-  parent-codes checkbox's) uses the same fast-appearing custom tooltip as the
-  mapping list's code chips (see "Editing an existing mapping"), not the
-  native `title` attribute, so a first-time user isn't stuck waiting out the
-  browser's slow default hover delay.
+  - Its explanation is plain, static text next to the checkbox (no "?" hint —
+    a hover-only explanation would be redundant with text that's always
+    visible) and does not change with the checkbox's state — the behavior it
+    describes changes the shape of the resulting tree, so it deserves a
+    stable, always-visible explanation rather than one that shifts as the
+    user toggles the box.
+- No field in the column-mapping step uses a "?" hover hint — the
+  code/title/description columns and the level dropdown are self-explanatory
+  by label, and the lowest-level-codes checkbox uses its own always-visible
+  text (see above). The fast-appearing custom tooltip (`fastTooltip` in
+  `src/lib/tooltip.js`) is still used elsewhere, e.g. the mapping list's code
+  chips (see "Editing an existing mapping").
 
 ### Column-guessing heuristics
 
@@ -360,8 +374,7 @@ Each loaded system is shown as a collapsible, searchable tree.
   (a short, fixed delay), not the native `title` attribute, whose
   browser-controlled show delay is too slow for quickly scanning many codes.
   - This same tooltip is reused anywhere else that needs a quick hover
-    explanation (e.g. the column-mapping "?" hints — see "Uploading and
-    preparing a system").
+    explanation (see `src/lib/tooltip.js`'s `fastTooltip` action).
   - The tooltip always stays fully within the viewport: it clamps
     horizontally instead of overflowing past the left/right edge, and flips
     to appear below its anchor instead of above when there isn't enough room

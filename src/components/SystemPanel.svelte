@@ -46,6 +46,10 @@
   }
 
   function onFile(file) {
+    if (!/\.csv$/i.test(file.name)) {
+      error = strings.notCsvFile(file.name);
+      return;
+    }
     return parseAndStage(file.name, file);
   }
 
@@ -97,7 +101,9 @@
   />
 {:else}
   <div class="setup" data-accent={accent}>
-    <div class="setup-head">{title}</div>
+    <div class="setup-head">
+      {title}{#if phase === 'mapping'}&nbsp;<span class="setup-head-file">({parsed.fileName})</span>{/if}
+    </div>
     {#if phase === 'idle'}
       <FileUpload
         label={strings.uploadLabel(title)}
@@ -108,7 +114,6 @@
       {#if error}<p class="status error">{error}</p>{/if}
     {:else if phase === 'mapping'}
       <ColumnMapper
-        fileName={parsed.fileName}
         fields={parsed.fields}
         rows={parsed.rows}
         {onConfirm}
@@ -133,6 +138,10 @@
   .setup-head {
     font-weight: 700;
     font-size: 14px;
+  }
+  .setup-head-file {
+    font-weight: 400;
+    color: var(--text-muted);
   }
   .status {
     margin: 0;

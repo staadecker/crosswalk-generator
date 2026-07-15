@@ -12,8 +12,8 @@ export const common = {
 };
 
 export const app = {
-  demoPrompt: 'Just playing around?',
-  tryDemoButton: 'Try our demo data',
+  demoPrompt: 'First time here?',
+  tryDemoButton: 'Try with demo data',
   loadingDemo: 'Loading demo data…',
   demoLoadError: (message) => `Could not load demo data: ${message}`,
   systemATitle: 'System A',
@@ -97,41 +97,32 @@ export const toolbar = {
 export const systemPanel = {
   defaultTitle: 'System',
   noReadableRows: 'That file has no readable rows.',
+  notCsvFile: (fileName) => `"${fileName}" is not a .csv file.`,
   parseError: (message) => `Could not parse CSV: ${message}`,
   parsing: 'Parsing…',
-  uploadLabel: (title) => `Upload ${title} CSV`,
-  uploadHint: 'Must include code and title columns. Level and description are optional.',
+  uploadLabel: (title) => `Upload list of codes`,
+  uploadHint: 'Must be a CSV file with one row per code and columns for the code, code name, and optionally, code description and hierarchy level.',
   confirmReplace: (affected) =>
     `Replacing this file will delete ${affected} ${pluralize(affected, 'grouping')} that reference it. This cannot be undone. Continue?`,
 };
 
 export const columnMapper = {
-  confirmColumnsPrefix: 'Confirm the columns in',
   selectColumnsTitle: 'Select columns',
-  codeColumnLabel: 'Code column',
-  codeColumnHelp:
-    'The unique identifier for each row, e.g. a NAICS or NACE code. Should be short and unique across the whole file.',
-  titleColumnLabel: 'Title column',
-  titleColumnHelp: 'A short label or name for each code — the primary text shown in the tree.',
-  descColumnLabel: 'Description column',
+  codeColumnLabel: 'Column containing the codes',
+  titleColumnLabel: 'Column containing the code names',
+  descColumnLabel: 'Column containing the code descriptions',
   descColumnOptionalTag: '(optional)',
-  descColumnHelp:
-    'A longer, free-text description of each code. Shown only as a hover tooltip, never as the primary label.',
   selectPlaceholder: '— select —',
   nonePlaceholder: '— none —',
   configureNestingTitle: 'Configure nesting',
-  dataIncludesParentsLabel: 'Data includes parent codes',
-  dataIncludesParentsHelp:
-    '',
-  parentsHint:
-    'Check this if your file has rows for parent codes (e.g. a row for "01" as well as "01.1" and "01.2"). If unchecked, parent codes will be generated automatically from each code\'s own structure (e.g. a "01" row will be created if "01.a" and "01.b" are present).',
-  levelColumnLabel: 'Level column',
-  levelColumnHelp:
-    'If your file has a column specifying the code\'s level, specify it here. Otherwise, the level will be infered from the shape of each code (e.g. "01" → "01.1" → "01.11", or a NAICS-style "48-49" sector range).',
-  autoDetectOption: 'Auto-detect from code structure',
+  dataOnlyLowestLevelLabel: 'Data includes only lowest-level codes (auto-group codes)',
+  onlyLowestLevelHint:
+    'Uncheck this box if your data includes parent codes. For example, 1.1 is a parent of 1.1.1 and 1.1.2. If left checked, parent codes will be generated automatically.',
+  levelColumnLabel: 'Column specifying the level of codes',
+  autoDetectOption: 'None (auto-detect from code structure)',
   tagLevel: 'level',
   tagCode: 'code',
-  tagTitle: 'title',
+  tagTitle: 'name',
   tagDescription: 'description',
   cancelButton: 'Cancel',
   buildButton: 'Build hierarchy',
@@ -149,15 +140,6 @@ export const mappingBar = {
   markNoMatchButton: (n) => `Mark ${n} as no match`,
   groupButton: 'Group',
   groupButtonTitle: 'Group (shortcut: G)',
-  linkedMessage: (keptA, keptB, skippedTotal) =>
-    `Created a grouping linking ${keptA} × ${keptB} code(s).` +
-    (skippedTotal ? ` (${skippedTotal} skipped — already grouped elsewhere)` : ''),
-  markedNoMatchMessage: (added, skipped) =>
-    `Marked ${added} ${pluralize(added, 'code')} as no match${skipped ? ` (${skipped} skipped — already grouped)` : ''}.`,
-  linkHint: (nA, labelA, nB, labelB) =>
-    `Group ${nA} ${labelA} ${pluralize(nA, 'code')} with ${nB} ${labelB} ${pluralize(nB, 'code')}.`,
-  noMatchHint: (n) => `These ${n} code(s) have no counterpart? Mark them no match.`,
-  defaultHint: '',
 };
 
 export const mappingList = {
@@ -209,7 +191,6 @@ export const treePanel = {
 
 export const fileUpload = {
   defaultLabel: 'Upload CSV',
-  dropHint: 'Drag & drop or click to choose a .csv file',
 };
 
 export const hierarchy = {

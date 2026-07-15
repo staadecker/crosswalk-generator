@@ -17,7 +17,6 @@
   } = $props();
 
   let note = $state('');
-  let flash = $state('');
   let approx = $state(false); // relationship the *next* created mapping will get
 
   let labelA = $derived(systemA?.name || common.fallbackLabelA);
@@ -40,23 +39,14 @@
   // No-match applies when exactly one side has a selection.
   let noMatchSide = $derived(nA > 0 && nB === 0 ? 'A' : nB > 0 && nA === 0 ? 'B' : null);
 
-  function say(msg) {
-    flash = msg;
-    setTimeout(() => (flash = ''), 2600);
-  }
-
   function link() {
     if (!canLink) return;
     const aLeaves = expandToLeaves(systemA.tree, selectionA);
     const bLeaves = expandToLeaves(systemB.tree, selectionB);
     const name = defaultGroupName(systemA, aLeaves);
-    const { skippedA, skippedB } = addGroup([...aLeaves], [...bLeaves], name, note.trim(), approx);
+    addGroup([...aLeaves], [...bLeaves], name, note.trim(), approx);
     note = '';
     onLinked?.(); // App clears both selections
-    const keptA = aLeaves.size - skippedA.length;
-    const keptB = bLeaves.size - skippedB.length;
-    const skippedTotal = skippedA.length + skippedB.length;
-    say(strings.linkedMessage(keptA, keptB, skippedTotal));
   }
 
   // 'G' triggers the same action as clicking Group, so a keyboard-only flow
@@ -81,10 +71,9 @@
     const leaves = expandToLeaves(system.tree, sel);
     // markNoMatch collapses every leaf under a shared ancestor into one row
     // (passing the tree); unrelated codes still never get bundled together.
-    const { added, skipped } = markNoMatch(noMatchSide, [...leaves], note.trim(), system.tree);
+    markNoMatch(noMatchSide, [...leaves], note.trim(), system.tree);
     note = '';
     onLinked?.();
-    say(strings.markedNoMatchMessage(added, skipped));
   }
 </script>
 
@@ -175,14 +164,6 @@
       <button class="primary" disabled={!canLink} onclick={link} title={strings.groupButtonTitle}>
         {strings.groupButton}
       </button>
-    {/if}
-  </div>
-
-  <div class="hint" aria-live="polite">
-    {#if flash}<span class="ok">{flash}</span>
-    {:else if canLink}{strings.linkHint(nA, labelA, nB, labelB)}
-    {:else if noMatchSide}{strings.noMatchHint(noMatchSide === 'A' ? nA : nB)}
-    {:else}{strings.defaultHint}
     {/if}
   </div>
 </div>
@@ -322,16 +303,6 @@
   }
   .nomatch-btn {
     border-color: var(--border);
-  }
-  .hint {
-    font-size: 12px;
-    color: var(--text-muted);
-    min-height: 16px;
-    text-align: center;
-  }
-  .hint .ok {
-    color: var(--accent);
-    font-weight: 600;
   }
   @media (max-width: 640px) {
     .ends {

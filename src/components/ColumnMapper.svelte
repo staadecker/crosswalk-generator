@@ -1,9 +1,8 @@
 <script>
   import { guessColumns } from '../lib/csv.js';
-  import { fastTooltip } from '../lib/tooltip.js';
   import { columnMapper as strings } from '../lib/strings.js';
 
-  let { fileName = '', fields = [], rows = [], onConfirm, onCancel } = $props();
+  let { fields = [], rows = [], onConfirm, onCancel } = $props();
 
   // Intentionally a one-time snapshot at mount (matches Svelte 4 behavior): this
   // component is destroyed/recreated whenever a new file is uploaded, so `fields`
@@ -17,20 +16,20 @@
   let codeCol = $state(guess.code ?? '');
   let titleCol = $state(guess.title ?? '');
   let descCol = $state(guess.description ?? ''); // optional long-form description
-  // Whether the file already has an explicit row for every ancestor level
-  // (checked), or missing ancestor codes should be synthesized (unchecked,
-  // the default).
-  let dataIncludesParents = $state(false);
+  // Whether the file only has rows for lowest-level (leaf) codes, so missing
+  // ancestor codes should be synthesized (checked, the default), or the file
+  // already has an explicit row for every ancestor level (unchecked).
+  let dataOnlyLowestLevel = $state(true);
 
   // An explicit level column only makes sense when every ancestor level is
   // already present as its own row — the auto-generate-parents path is the
   // only one that knows how to synthesize a missing ancestor, and it only
   // applies to auto-detected levels. So picking a level column is disabled
-  // (and reset back to auto-detect) whenever "data includes parent codes" is
-  // unchecked, rather than letting the user pick a column that can't
+  // (and reset back to auto-detect) whenever "data includes only lowest-level
+  // codes" is checked, rather than letting the user pick a column that can't
   // actually be honored.
   $effect(() => {
-    if (!dataIncludesParents) levelCol = '';
+    if (dataOnlyLowestLevel) levelCol = '';
   });
 
   let canContinue = $derived(!!codeCol && !!titleCol);
@@ -44,29 +43,19 @@
     } else {
       colMap.level = null;
       colMap.autoLevel = true;
-      colMap.autoParents = !dataIncludesParents;
+      colMap.autoParents = dataOnlyLowestLevel;
     }
     onConfirm?.(colMap);
   }
 </script>
 
 <div class="mapper">
-  <p class="intro">
-    {strings.confirmColumnsPrefix} <strong>{fileName}</strong>.
-  </p>
-
   <div class="section">
     <h3 class="section-title">{strings.selectColumnsTitle}</h3>
     <div class="fields">
       <label for="col-code">
         <span>
           {strings.codeColumnLabel}
-          <button
-            type="button"
-            class="help"
-            use:fastTooltip={strings.codeColumnHelp}
-            >?</button
-          >
         </span>
         <select id="col-code" bind:value={codeCol}>
           <option value="">{strings.selectPlaceholder}</option>
@@ -76,12 +65,6 @@
       <label for="col-title">
         <span>
           {strings.titleColumnLabel}
-          <button
-            type="button"
-            class="help"
-            use:fastTooltip={strings.titleColumnHelp}
-            >?</button
-          >
         </span>
         <select id="col-title" bind:value={titleCol}>
           <option value="">{strings.selectPlaceholder}</option>
@@ -91,12 +74,6 @@
       <label for="col-desc">
         <span>
           {strings.descColumnLabel} <em>{strings.descColumnOptionalTag}</em>
-          <button
-            type="button"
-            class="help"
-            use:fastTooltip={strings.descColumnHelp}
-            >?</button
-          >
         </span>
         <select id="col-desc" bind:value={descCol}>
           <option value="">{strings.nonePlaceholder}</option>
@@ -111,32 +88,20 @@
     <div class="fields">
       <div class="question">
         <label class="checkbox">
-          <input type="checkbox" bind:checked={dataIncludesParents} />
+          <input type="checkbox" bind:checked={dataOnlyLowestLevel} />
           <span>
-            {strings.dataIncludesParentsLabel}
-            <button
-              type="button"
-              class="help"
-              use:fastTooltip={strings.dataIncludesParentsHelp}
-              >?</button
-            >
+            {strings.dataOnlyLowestLevelLabel}
           </span>
         </label>
         <p class="hint">
-          {strings.parentsHint}
+          {strings.onlyLowestLevelHint}
         </p>
       </div>
-      <label for="col-level" class="level-field" class:disabled={!dataIncludesParents}>
+      <label for="col-level" class="level-field" class:disabled={dataOnlyLowestLevel}>
         <span>
           {strings.levelColumnLabel}
-          <button
-            type="button"
-            class="help"
-            use:fastTooltip={strings.levelColumnHelp}
-            >?</button
-          >
         </span>
-        <select id="col-level" bind:value={levelCol} disabled={!dataIncludesParents}>
+        <select id="col-level" bind:value={levelCol} disabled={dataOnlyLowestLevel}>
           <option value="">{strings.autoDetectOption}</option>
           {#each fields as f}<option value={f}>{f}</option>{/each}
         </select>
@@ -182,10 +147,6 @@
 <style>
   .mapper {
     padding: 4px 2px;
-  }
-  .intro {
-    margin: 0 0 12px;
-    color: var(--text-muted);
   }
   .section {
     margin-bottom: 14px;
@@ -239,31 +200,6 @@
   }
   .level-field.disabled select {
     cursor: not-allowed;
-  }
-  .help {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 14px;
-    height: 14px;
-    padding: 0;
-    border-radius: 50%;
-    background: var(--surface-2);
-    color: var(--text-muted);
-    border: 1px solid var(--border);
-    font: inherit;
-    font-size: 10px;
-    font-weight: 700;
-    line-height: 1;
-    cursor: help;
-    flex: none;
-  }
-  .help:hover,
-  .help:focus-visible {
-    background: var(--accent-soft);
-    color: var(--accent);
-    border-color: var(--accent);
-    outline: none;
   }
   select {
     width: 100%;
