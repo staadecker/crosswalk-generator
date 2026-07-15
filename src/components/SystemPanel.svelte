@@ -2,7 +2,7 @@
   import FileUpload from './FileUpload.svelte';
   import ColumnMapper from './ColumnMapper.svelte';
   import TreePanel from './TreePanel.svelte';
-  import { parseCsv, guessColumns } from '../lib/csv.js';
+  import { parseCsv } from '../lib/csv.js';
   import { makeSystem, mappings, clearMappingsForSide } from '../lib/stores.js';
   import { get } from 'svelte/store';
 
@@ -13,7 +13,6 @@
     noMatchCodes = new Set(),
     accent = 'A',
     title = 'System',
-    samples = [], // [{ file, label }] — each offers a one-click "try sample data" shortcut
     onToggle,
     onClear,
     onHover,
@@ -47,45 +46,6 @@
 
   function onFile(file) {
     return parseAndStage(file.name, file);
-  }
-
-  // Sample datasets skip the column-mapping step entirely: columns are guessed
-  // and the hierarchy is auto-built (level auto-detected from code structure)
-  // in one click, so trying out the app never requires the user to understand
-  // CSV column semantics up front. The bundled samples already have an
-  // explicit row for every ancestor level, so they use "parent codes already
-  // included" (autoParents: false) rather than auto-generate/synthesis —
-  // turning synthesis on here would incorrectly treat every real sector/
-  // division/group code as if it collided with itself and wrap it in a
-  // spurious "<code> (group)" node.
-  async function loadSample(sample) {
-    error = '';
-    loading = true;
-    try {
-      const res = await fetch(`${import.meta.env.BASE_URL}samples/${sample.file}`);
-      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-      const text = await res.text();
-      const { fields, rows } = await parseCsv(text);
-      if (!fields.length || !rows.length) {
-        error = 'That sample has no readable rows.';
-        return;
-      }
-      const guess = guessColumns(fields, rows);
-      const colMap = {
-        level: null,
-        code: guess.code,
-        title: guess.title,
-        description: guess.description,
-        autoLevel: true,
-        autoParents: false,
-      };
-      system = makeSystem(sample.label, rows, colMap);
-      onClear?.();
-    } catch (e) {
-      error = `Could not load sample data: ${e.message ?? e}`;
-    } finally {
-      loading = false;
-    }
   }
 
   function onConfirm(colMap) {
@@ -145,22 +105,6 @@
         hint="Must include code and title columns. Level and description are optional."
         {onFile}
       />
-      {#if samples.length}
-        <div class="samples">
-          <span class="samples-label">Or try sample data:</span>
-          <div class="sample-btns">
-            {#each samples as sample (sample.file)}
-              <button
-                class="ghost small sample-btn"
-                onclick={() => loadSample(sample)}
-                disabled={loading}
-              >
-                {sample.label}
-              </button>
-            {/each}
-          </div>
-        </div>
-      {/if}
       {#if loading}<p class="status">Parsing…</p>{/if}
       {#if error}<p class="status error">{error}</p>{/if}
     {:else if phase === 'mapping'}
@@ -198,24 +142,5 @@
   }
   .status.error {
     color: var(--danger);
-  }
-  .samples {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 6px;
-  }
-  .samples-label {
-    font-size: 11px;
-    color: var(--text-muted);
-  }
-  .sample-btns {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 6px;
-  }
-  .sample-btn {
-    align-self: center;
   }
 </style>

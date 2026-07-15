@@ -17,15 +17,7 @@ import {
   buildAutoHierarchy,
   synthesizeMissingParents,
 } from '../src/lib/hierarchy.js';
-import {
-  buildCrosswalkRows,
-  crosswalkToCsv,
-  buildAToNameRows,
-  aToNameCsv,
-  buildNameToBRows,
-  nameToBCsv,
-} from '../src/lib/crosswalk.js';
-import { buildZip } from '../src/lib/zip.js';
+import { buildCrosswalkRows, crosswalkToCsv } from '../src/lib/crosswalk.js';
 import {
   addGroup,
   markNoMatch,
@@ -307,20 +299,59 @@ systemBStore.set(sysB);
   check(counts.noMatchB.has('62.01'), 'a no-match leaf code is tracked separately for badge rendering');
 }
 
-// --- export, mode A: single CSV with the N×N cross-product per group ---
+// --- export: single CSV, one row per code (both sides of every group),
+// sharing a sequential group_number rather than an N×N cross-product ---
 const rows = buildCrosswalkRows(get(mappings), sysA, sysB);
-const soy = rows.find((r) => r.a_code === '11111' && r.b_code === '01.11');
-check(soy.a_title === 'Soybean Farming', 'crosswalk joins the A title');
-check(soy.b_title.includes('cereals'), 'crosswalk joins the B title');
-check(soy.relationship === 'equal', 'a group defaults to "equal" (not approximate)');
-const noMatchRow = rows.find((r) => r.a_code === '' && r.b_code === '62.01');
-check(noMatchRow && noMatchRow.b_title.includes('programming'), 'no-match row exports blank A + populated B');
+const soyA = rows.find((r) => r.system === 'A' && r.code === '11111');
+const soyB = rows.find((r) => r.system === 'B' && r.code === '01.11');
+check(soyA.system_name === 'NAICS', 'the system_name column carries the A system\'s own name');
+check(soyB.system_name === 'NACE', 'the system_name column carries the B system\'s own name');
+check(soyA.title === 'Soybean Farming', 'crosswalk joins the A code\'s title');
+check(soyB.title.includes('cereals'), 'crosswalk joins the B code\'s title');
+check(soyA.group_number === soyB.group_number, 'both sides of one group share the same group_number');
+check(soyA.relationship === 'equal', 'a group defaults to "equal" (not approximate)');
+check(soyA.note === 'reviewed', 'every row of a group carries that group\'s note');
+const noMatchRow = rows.find((r) => r.code === '62.01');
+check(noMatchRow && noMatchRow.system === 'B', 'a B-only no-match entry exports a row under system B');
+check(!rows.some((r) => r.code === '62.01' && r.system === 'A'), 'a B-only no-match entry has no A-side row');
 check(noMatchRow.relationship === '', 'a no-match row has no relationship (nothing to qualify)');
+const groupNumbersSeen = [...new Set(rows.map((r) => r.group_number))];
+check(groupNumbersSeen[0] === 1, 'group numbering starts at 1');
+check(
+  groupNumbersSeen.every((n, i) => n === i + 1),
+  'group_number is sequential in group order',
+);
 const header = crosswalkToCsv(rows).split(/\r?\n/)[0];
 check(
-  header === 'a_code,a_title,b_code,b_title,group_name,relationship,note',
-  'exported single-file CSV has the expected 7-column header',
+  header === 'group_number,system,system_name,code,title,description,relationship,note',
+  'exported CSV has the expected 8-column header',
 );
+
+// --- the literal example from the spec: linking NACE code 12 to NAICS code 16
+// in one group exports exactly the two rows "1,B,NACE,12" and "1,A,NAICS,16" ---
+{
+  const tinyA = makeSystem('NAICS', [{ level: '1', code: '16', description: 'Sixteen' }], {
+    level: 'level',
+    code: 'code',
+    title: 'description',
+  });
+  const tinyB = makeSystem('NACE', [{ level: '1', code: '12', description: 'Twelve' }], {
+    level: 'level',
+    code: 'code',
+    title: 'description',
+  });
+  const group = { id: 'g-example', name: 'example', aLeafCodes: ['16'], bLeafCodes: ['12'], note: '', approx: false };
+  const exampleRows = buildCrosswalkRows([group], tinyA, tinyB);
+  check(exampleRows.length === 2, 'one group with one code per side exports exactly 2 rows, not 4');
+  check(
+    exampleRows.some((r) => r.group_number === 1 && r.system === 'B' && r.system_name === 'NACE' && r.code === '12'),
+    'exports a "1,B,NACE,12" row',
+  );
+  check(
+    exampleRows.some((r) => r.group_number === 1 && r.system === 'A' && r.system_name === 'NAICS' && r.code === '16'),
+    'exports a "1,A,NAICS,16" row',
+  );
+}
 
 // --- toggleApprox: a group can be flagged "approximately equal" instead of "equal" ---
 {
@@ -329,7 +360,7 @@ check(
   toggleApprox(soyGroup.id);
   check(get(mappings).find((g) => g.id === soyGroup.id).approx === true, 'toggleApprox flips a group to approximate');
   const approxRows = buildCrosswalkRows(get(mappings), sysA, sysB);
-  const approxSoy = approxRows.find((r) => r.a_code === '11111' && r.b_code === '01.11');
+  const approxSoy = approxRows.find((r) => r.system === 'A' && r.code === '11111');
   check(approxSoy.relationship === 'approximate', 'the export reflects the toggled relationship');
   toggleApprox(soyGroup.id); // flip back so later checks in this file see the original state
   check(get(mappings).find((g) => g.id === soyGroup.id).approx === false, 'toggleApprox flips back to equal');
@@ -358,38 +389,6 @@ check(
   markNoMatch('A', ['54112']); // NAICS has no such code, but markNoMatch doesn't validate against a tree
   check(!get(canRedoMappings), 'a new edit after an undo clears the redo stack');
 }
-
-// --- export, mode B: two files (A leaf -> group name, group name -> B leaf) ---
-const aRows = buildAToNameRows(get(mappings), sysA);
-const bRows = buildNameToBRows(get(mappings), sysB);
-check(
-  aRows.some((r) => r.a_code === '11111' && r.group_name === 'Soybean farming (renamed)'),
-  'a-to-name file maps each A leaf to its group name',
-);
-check(
-  !aRows.some((r) => r.group_name === 'Computer programming activities'),
-  'a-to-name file has no rows for a B-only (no-match) group',
-);
-check(
-  bRows.some((r) => r.b_code === '01.11' && r.group_name === 'Soybean farming (renamed)'),
-  'name-to-b file maps each group name to its B leaves',
-);
-check(
-  aToNameCsv(aRows).split(/\r?\n/)[0] === 'a_code,a_title,group_name,relationship',
-  'a-to-name CSV has the expected 4-column header',
-);
-check(
-  nameToBCsv(bRows).split(/\r?\n/)[0] === 'group_name,b_code,b_title,relationship',
-  'name-to-b CSV has the expected 4-column header',
-);
-check(
-  aRows.find((r) => r.a_code === '11111').relationship === 'equal',
-  'a-to-name file reports the relationship too, defaulting to "equal"',
-);
-check(
-  bRows.find((r) => r.b_code === '62.01').relationship === '',
-  'name-to-b file leaves relationship blank for a no-match row',
-);
 
 // --- removeMapping still drops a whole group by id ---
 {
@@ -849,37 +848,6 @@ check(noDesc.byCode.get('w').description === '', 'node.description is blank when
     synthesizedSiblings.join(',') === '3111,3112',
     `311's children are sorted (3111 before 3112) even though "3112" appeared first in the file (got ${synthesizedSiblings.join(',')})`,
   );
-}
-
-// --- buildZip: dependency-free ZIP writer used by the single-export-button flow ---
-{
-  /** Minimal STORE-method zip reader, sufficient to round-trip what buildZip writes. */
-  function readZipEntries(buffer) {
-    const entries = {};
-    let offset = 0;
-    while (offset + 4 <= buffer.length && buffer.readUInt32LE(offset) === 0x04034b50) {
-      const size = buffer.readUInt32LE(offset + 18);
-      const nameLen = buffer.readUInt16LE(offset + 26);
-      const extraLen = buffer.readUInt16LE(offset + 28);
-      const nameStart = offset + 30;
-      const name = buffer.toString('utf8', nameStart, nameStart + nameLen);
-      const dataStart = nameStart + nameLen + extraLen;
-      entries[name] = buffer.toString('utf8', dataStart, dataStart + size);
-      offset = dataStart + size;
-    }
-    return entries;
-  }
-
-  const blob = buildZip([
-    { name: 'a.csv', content: 'x,y\n1,2\n' },
-    { name: 'b.csv', content: 'hello,world\n' + 'z'.repeat(1000) },
-  ]);
-  const buffer = Buffer.from(await blob.arrayBuffer());
-  check(buffer.readUInt32LE(0) === 0x04034b50, 'zip starts with a valid local file header signature');
-  const entries = readZipEntries(buffer);
-  check(Object.keys(entries).join(',') === 'a.csv,b.csv', 'zip contains both entries by name');
-  check(entries['a.csv'] === 'x,y\n1,2\n', 'first entry round-trips its exact content');
-  check(entries['b.csv'] === 'hello,world\n' + 'z'.repeat(1000), 'second (larger) entry round-trips its exact content');
 }
 
 console.log(failures ? `\n${failures} FAILURE(S)` : '\nAll logic checks passed.');

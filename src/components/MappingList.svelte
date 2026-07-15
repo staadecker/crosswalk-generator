@@ -121,17 +121,20 @@
 
   let hasSelection = $derived(selectionA.size > 0 || selectionB.size > 0);
 
+  // The leaf descendants of whatever's currently hovered in each tree panel (or
+  // null if nothing's hovered there) — the hovered code may be an ancestor (e.g.
+  // one showing an aggregated mapping badge) rather than a leaf, so it's expanded
+  // up front and reused both for row-level and bubble-level highlight checks.
+  let hoverALeaves = $derived.by(() => ($hoverA && systemA ? expandToLeaves(systemA.tree, [$hoverA]) : null));
+  let hoverBLeaves = $derived.by(() => ($hoverB && systemB ? expandToLeaves(systemB.tree, [$hoverB]) : null));
+
   // A group is highlighted while the code currently hovered in either tree panel
-  // belongs to it. The hovered code may be an ancestor (e.g. hovering a parent that
-  // shows an aggregated mapping badge) rather than a leaf, so it's expanded to its
-  // leaf descendants before checking for overlap with a group's (leaf-only) codes.
+  // belongs to it (touches any of its leaf codes on that side).
   let highlightedIds = $derived.by(() => {
-    const hA = $hoverA;
-    const hB = $hoverB;
+    const aLeaves = hoverALeaves;
+    const bLeaves = hoverBLeaves;
     const ids = new Set();
-    if (!hA && !hB) return ids;
-    const aLeaves = hA && systemA ? expandToLeaves(systemA.tree, [hA]) : null;
-    const bLeaves = hB && systemB ? expandToLeaves(systemB.tree, [hB]) : null;
+    if (!aLeaves && !bLeaves) return ids;
     for (const g of mappings) {
       const touchesA = aLeaves && g.aLeafCodes.some((c) => aLeaves.has(c));
       const touchesB = bLeaves && g.bLeafCodes.some((c) => bLeaves.has(c));
@@ -139,6 +142,14 @@
     }
     return ids;
   });
+
+  // Within a highlighted group, the specific bubble the hovered code actually
+  // falls under (not every bubble in the row) — a bubble may stand in for
+  // several leaves (see bubbles()), so this checks for overlap the same way
+  // group-level highlighting does, just scoped to one bubble's own leaf set.
+  function bubbleHighlighted(bubble, hoverLeaves) {
+    return !!hoverLeaves && bubble.leaves.some((l) => hoverLeaves.has(l));
+  }
 
   // A hover-driven highlight is often off-screen in a list with hundreds of
   // rows, so scroll the first newly-highlighted row into view (not just
@@ -184,7 +195,7 @@
 
 <div class="list">
   <header>
-    <h3>Mappings <span class="count">{mappings.length}</span></h3>
+    <h3>Groupings <span class="count">{mappings.length}</span></h3>
     {#if flash}<span class="flash" aria-live="polite">{flash}</span>{/if}
     {#if hasSelection}
       <label class="filter">
@@ -196,7 +207,7 @@
 
   <div class="rows" bind:this={rowsEl}>
     {#if mappings.length === 0}
-      <p class="empty">No mappings yet. Click codes on each side, then <strong>Link</strong> them.</p>
+      <p class="empty">No groupings yet. Click codes on each side, then <strong>Group</strong> them.</p>
     {:else if visible.length === 0}
       <p class="empty">No mappings touch the current selection.</p>
     {:else}
@@ -217,6 +228,7 @@
                   {#each m.aBubbles as b (b.code)}
                     <span
                       class="bubble"
+                      class:bubble-highlighted={bubbleHighlighted(b, hoverALeaves)}
                       role="listitem"
                       draggable="true"
                       use:fastTooltip={() => b.tooltip}
@@ -266,6 +278,7 @@
                   {#each m.bBubbles as b (b.code)}
                     <span
                       class="bubble"
+                      class:bubble-highlighted={bubbleHighlighted(b, hoverBLeaves)}
                       role="listitem"
                       draggable="true"
                       use:fastTooltip={() => b.tooltip}
@@ -496,6 +509,11 @@
   }
   .bubble:active {
     cursor: grabbing;
+  }
+  .bubble.bubble-highlighted {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    box-shadow: 0 0 0 2px var(--accent-soft);
   }
   .bubble-code {
     font-family: ui-monospace, Menlo, Consolas, monospace;

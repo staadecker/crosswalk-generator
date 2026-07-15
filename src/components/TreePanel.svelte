@@ -38,10 +38,21 @@
     node.select?.();
   }
 
-  // Default: expand roots so the tree isn't a wall of top-level codes only.
+  // Default: expand roots so the tree isn't a wall of top-level codes only —
+  // but only once per loaded tree, not any time `expanded` later happens to
+  // become empty. Keying this off `system.tree`'s own identity (a fresh
+  // object every time a hierarchy is (re)built, see makeSystem/loadProject in
+  // stores.js) rather than `expanded.size` matters: the old size-based check
+  // fired again every time the user collapsed the last remaining open
+  // section, silently re-expanding every root right back out from under them
+  // (a regression that also made the "Collapse" button look like it did
+  // nothing at the top level).
+  let expandedForTree = null;
   $effect(() => {
-    if (system && expanded.size === 0 && !allExpanded) {
+    if (system && system.tree !== expandedForTree) {
+      expandedForTree = system.tree;
       expanded = new Set(system.tree.roots.map((r) => r.code));
+      allExpanded = false;
     }
   });
 
@@ -360,6 +371,7 @@
 
 <div class="panel" data-accent={accent}>
   <header>
+    <div class="side-label">System {accent}</div>
     <div class="titlerow">
       <div class="name-wrap">
         {#if editingName}
@@ -405,15 +417,14 @@
       <button class="ghost small" onclick={expandAll} title="Expand all">Expand</button>
       <button class="ghost small" onclick={collapseAll} title="Collapse all">Collapse</button>
     </div>
-    <div class="meta">
-      <span>{system.tree.nodes.length} codes</span>
-      {#if selected.size > 0}
+    {#if selected.size > 0}
+      <div class="meta">
         <span class="selcount">
           {selected.size} selected
           <button class="linky" onclick={() => onClear?.()}>Clear</button>
         </span>
-      {/if}
-    </div>
+      </div>
+    {/if}
     <div
       class="progress"
       role="progressbar"
@@ -529,6 +540,13 @@
     padding: 10px 12px;
     border-bottom: 1px solid var(--border);
     background: var(--surface-2);
+  }
+  .side-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+    margin-bottom: 2px;
   }
   .titlerow {
     display: flex;

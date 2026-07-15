@@ -61,12 +61,12 @@
     );
   }
 
-  // 'L' triggers the same action as clicking Link, so a keyboard-only flow
-  // doesn't need to reach for the mouse — but only when Link is actually the
+  // 'G' triggers the same action as clicking Group, so a keyboard-only flow
+  // doesn't need to reach for the mouse — but only when Group is actually the
   // live action (both sides selected) and the keypress isn't really text
   // being typed into the search box, a note field, or any other input.
   function handleKeydown(e) {
-    if (e.key !== 'l' && e.key !== 'L') return;
+    if (e.key !== 'g' && e.key !== 'G') return;
     if (e.altKey || e.ctrlKey || e.metaKey) return;
     const tag = e.target?.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target?.isContentEditable) return;
@@ -163,7 +163,7 @@
   <div class="linkrow">
     <input
       type="text"
-      placeholder="Optional note (applied to this mapping)…"
+      placeholder="Optional note…"
       bind:value={note}
       onkeydown={(e) => e.key === 'Enter' && link()}
       aria-label="Mapping note"
@@ -174,8 +174,8 @@
         Mark {noMatchSide === 'A' ? nA : nB} as no match
       </button>
     {:else}
-      <button class="primary" disabled={!canLink} onclick={link} title="Link (shortcut: L)">
-        Link
+      <button class="primary" disabled={!canLink} onclick={link} title="Group (shortcut: G)">
+        Group
       </button>
     {/if}
   </div>

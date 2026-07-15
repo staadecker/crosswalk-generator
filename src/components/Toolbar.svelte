@@ -16,23 +16,14 @@
   import undoIcon from '@material-design-icons/svg/filled/undo.svg?raw';
   import redoIcon from '@material-design-icons/svg/filled/redo.svg?raw';
   import helpIcon from '@material-design-icons/svg/filled/help_outline.svg?raw';
-  import {
-    buildCrosswalkRows,
-    crosswalkToCsv,
-    buildAToNameRows,
-    aToNameCsv,
-    buildNameToBRows,
-    nameToBCsv,
-    downloadFile,
-    downloadBlob,
-    readFileText,
-  } from '../lib/crosswalk.js';
-  import { buildZip } from '../lib/zip.js';
+  import { buildCrosswalkRows, crosswalkToCsv, downloadFile, readFileText } from '../lib/crosswalk.js';
 
   let { mappingCount = 0 } = $props();
 
   let importEl;
   let message = $state('');
+  let citeOpen = $state(false);
+  let citeAgreed = $state(false);
 
   function stamp() {
     return new Date().toISOString().slice(0, 10);
@@ -55,11 +46,9 @@
     return `${sa || 'a'}-to-${sb || 'b'}`;
   }
 
-  // One export button, one download: a zip bundling all three crosswalk
-  // representations (the N×N cross-product, plus the two normalized
-  // A→name / name→B files) — no format dropdown to choose between, and no
-  // browser multiple-automatic-download blocking to work around since it's a
-  // single file.
+  // One export button, one download: a single CSV with one row per code (both
+  // sides of every group), sharing a sequential group_number — no format
+  // dropdown to choose between, and no zip to unpack.
   function exportCsv() {
     const groups = get(mappings);
     if (!groups.length) {
@@ -69,13 +58,26 @@
     const a = get(systemA);
     const b = get(systemB);
     const pair = pairSlug(a, b);
-    const crosswalkCsv = crosswalkToCsv(buildCrosswalkRows(groups, a, b));
-    const zip = buildZip([
-      { name: 'crosswalk.csv', content: crosswalkCsv },
-      { name: 'a-to-name.csv', content: aToNameCsv(buildAToNameRows(groups, a)) },
-      { name: 'name-to-b.csv', content: nameToBCsv(buildNameToBRows(groups, b)) },
-    ]);
-    downloadBlob(`${pair}-crosswalk-${stamp()}.zip`, zip);
+    const csv = crosswalkToCsv(buildCrosswalkRows(groups, a, b));
+    downloadFile(`${pair}-crosswalk-${stamp()}.csv`, csv, 'text/csv');
+  }
+
+  // Export itself is gated behind an explicit citation-agreement popup —
+  // opening it never exports anything on its own; only confirming it does.
+  function openCiteModal() {
+    if (!mappingCount) return;
+    citeAgreed = false;
+    citeOpen = true;
+  }
+
+  function closeCiteModal() {
+    citeOpen = false;
+  }
+
+  function confirmExport() {
+    if (!citeAgreed) return;
+    exportCsv();
+    citeOpen = false;
   }
 
   function saveProject() {
@@ -97,9 +99,9 @@
   }
 
   function onClear() {
-    if (confirm('Clear both systems and all mappings? This cannot be undone.')) {
+    if (confirm('Restart? This clears both systems and all mappings — it cannot be undone.')) {
       clearAll();
-      flash('Cleared.');
+      flash('Restarted.');
     }
   }
 
@@ -113,7 +115,13 @@
   }
 </script>
 
-<svelte:window onkeydown={(e) => e.key === 'Escape' && $helpOpen && closeHelp()} />
+<svelte:window
+  onkeydown={(e) => {
+    if (e.key !== 'Escape') return;
+    if ($helpOpen) closeHelp();
+    else if (citeOpen) closeCiteModal();
+  }}
+/>
 
 <div class="toolbar">
   <div class="brand">
@@ -155,17 +163,17 @@
       </button>
     </div>
     <button
-      onclick={exportCsv}
+      onclick={openCiteModal}
       disabled={mappingCount === 0}
-      title="Download a .zip with the full crosswalk (N×N), plus A→name and name→B CSVs"
+      title="Download a single CSV: one row per code, grouped by a sequential group_number"
     >
-      Export crosswalk (.zip)
+      Export crosswalk (.csv)
     </button>
     <button onclick={saveProject} title="Save systems + mappings as a reloadable JSON file">
       Save project
     </button>
     <button onclick={() => importEl.click()} title="Load a saved project JSON">Load project</button>
-    <button class="danger" onclick={onClear} title="Remove everything">Clear</button>
+    <button class="danger" onclick={onClear} title="Remove everything and start over">Restart</button>
     <input bind:this={importEl} type="file" accept=".json,application/json" onchange={onImport} hidden />
   </div>
 </div>
@@ -197,22 +205,57 @@
           is uploaded anywhere, and everything auto-saves to this device as you go.
         </p>
         <ol>
-          <li>Upload a CSV for System A and System B (or try a sample dataset).</li>
+          <li>Upload a CSV for System A and System B (or click "Try our demo data" to load a demo pair into both at once).</li>
           <li>Browse each system as a tree; click codes on both sides to select them.</li>
           <li>
-            Click <strong>Link</strong> to group the selected codes into one mapping, or
+            Click <strong>Group</strong> to combine the selected codes into one grouping, or
             flag a one-sided selection as <strong>no match</strong>.
           </li>
-          <li>Export the result as a crosswalk (.zip of CSVs) or save the project to resume later.</li>
+          <li>Export the result as a crosswalk CSV or save the project to resume later.</li>
         </ol>
         <p>
-          A code already mapped elsewhere on its side is locked from a second mapping;
+          A code already mapped elsewhere on its side is locked from a second grouping;
           clicking a not-yet-mapped parent code selects every unmapped leaf beneath it.
         </p>
         <h3>Keyboard shortcuts</h3>
         <ul>
-          <li><kbd>L</kbd> — create the mapping for the current selection (same as clicking Link)</li>
+          <li><kbd>G</kbd> — create the grouping for the current selection (same as clicking Group)</li>
         </ul>
+      </div>
+    </div>
+  </div>
+{/if}
+
+{#if citeOpen}
+  <div
+    class="help-backdrop"
+    onclick={(e) => e.target === e.currentTarget && closeCiteModal()}
+    onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget && closeCiteModal()}
+    role="button"
+    tabindex="0"
+    aria-label="Dismiss export dialog"
+  >
+    <div class="help-modal" role="dialog" aria-modal="true" aria-label="Export crosswalk" tabindex="-1">
+      <div class="help-head">
+        <span class="help-title">Export crosswalk</span>
+        <button class="icon-btn" onclick={closeCiteModal} aria-label="Close">✕</button>
+      </div>
+      <div class="help-body">
+        <p>
+          Crosswalk Generator is free to use. If you use this exported crosswalk, please
+          credit <strong>Crosswalk Generator</strong> by Martin Staadecker, licensed under
+          <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener"
+            >CC BY 4.0</a
+          >.
+        </p>
+        <label class="cite-agree">
+          <input type="checkbox" bind:checked={citeAgreed} />
+          I agree to credit Crosswalk Generator when using this data.
+        </label>
+      </div>
+      <div class="cite-actions">
+        <button class="ghost" onclick={closeCiteModal}>Cancel</button>
+        <button class="primary" disabled={!citeAgreed} onclick={confirmExport}>Export</button>
       </div>
     </div>
   </div>
@@ -352,5 +395,21 @@
     background: var(--surface-2);
     font-family: ui-monospace, Menlo, Consolas, monospace;
     font-size: 12px;
+  }
+  .cite-agree {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .cite-agree input {
+    margin-top: 2px;
+  }
+  .cite-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 0 16px 16px;
   }
 </style>

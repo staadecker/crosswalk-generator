@@ -8,27 +8,30 @@
   // and `rows` never change during its lifetime.
   // svelte-ignore state_referenced_locally
   const guess = guessColumns(fields, rows);
-  let levelMode = $state('auto'); // 'column' | 'auto' — auto-detect is the default
-  let levelCol = $state(guess.level ?? '');
+  // The level dropdown always starts on "Auto-detect" (empty string), even if a
+  // level-shaped column was guessed — auto-detect is the recommended default and
+  // shouldn't be silently overridden by a guess the user hasn't confirmed.
+  let levelCol = $state(''); // '' = auto-detect from code structure; otherwise an explicit column name
   let codeCol = $state(guess.code ?? '');
   let titleCol = $state(guess.title ?? '');
   let descCol = $state(guess.description ?? ''); // optional long-form description
-  // auto mode only: whether to synthesize missing/colliding ancestor codes, or
-  // assume the file already has an explicit row for every ancestor level.
-  let autoParents = $state(true);
+  // Auto-detect mode only: whether the file already has an explicit row for
+  // every ancestor level (checked), or missing ancestor codes should be
+  // synthesized (unchecked, the default).
+  let dataIncludesParents = $state(false);
 
-  let canContinue = $derived(codeCol && titleCol && (levelMode === 'auto' || levelCol));
+  let canContinue = $derived(!!codeCol && !!titleCol);
   let preview = $derived(rows.slice(0, 5));
 
   function confirm() {
     if (!canContinue) return;
     const colMap = { code: codeCol, title: titleCol, description: descCol || null };
-    if (levelMode === 'auto') {
+    if (levelCol) {
+      colMap.level = levelCol;
+    } else {
       colMap.level = null;
       colMap.autoLevel = true;
-      colMap.autoParents = autoParents;
-    } else {
-      colMap.level = levelCol;
+      colMap.autoParents = !dataIncludesParents;
     }
     onConfirm?.(colMap);
   }
@@ -36,76 +39,96 @@
 
 <div class="mapper">
   <p class="intro">
-    Confirm the columns in <strong>{fileName}</strong>. By default the hierarchy depth is
-    auto-detected from each code's own structure; switch to specifying an explicit
-    <strong>level</strong> column (an integer per row) if auto-detect gets it wrong.
+    Confirm the columns in <strong>{fileName}</strong>.
   </p>
 
-  <div class="level-mode">
-    <label class="radio">
-      <input type="radio" name="levelMode" value="column" bind:group={levelMode} />
-      Specify level column
-    </label>
-    <label class="radio">
-      <input type="radio" name="levelMode" value="auto" bind:group={levelMode} />
-      Auto-detect level from code
-    </label>
-  </div>
-
   <div class="fields">
-    {#if levelMode === 'column'}
-      <label>
-        <span>Level column <em>(required)</em></span>
-        <select bind:value={levelCol}>
-          <option value="">— select —</option>
-          {#each fields as f}<option value={f}>{f}</option>{/each}
-        </select>
-      </label>
-    {:else}
-      <div class="parent-mode">
-        <label class="radio">
-          <input type="radio" name="parentMode" value={false} bind:group={autoParents} />
-          Parent codes already included
-        </label>
-        <label class="radio">
-          <input type="radio" name="parentMode" value={true} bind:group={autoParents} />
-          Auto-generate parent codes
-        </label>
-      </div>
-      <p class="hint">
-        {#if autoParents}
-          Every code is treated as a child; missing ancestor codes are synthesized
-          (e.g. "01" from "01.a"/"01.b"). If an ancestor code coincides with a code
-          that's already provided (e.g. both "20" and "20.w" are in the file), a
-          disambiguated "20 (group)" code is generated instead of reusing "20" as
-          the parent.
-        {:else}
-          Assumes the file already has an explicit row for every ancestor level;
-          each code nests directly under its own matching ancestor row.
-        {/if}
-      </p>
-    {/if}
     <label>
-      <span>Code column</span>
+      <span>
+        Code column
+        <span
+          class="help"
+          tabindex="0"
+          title="The unique identifier for each row, e.g. a NAICS or NACE code. Should be short and unique across the whole file."
+          >?</span
+        >
+      </span>
       <select bind:value={codeCol}>
         <option value="">— select —</option>
         {#each fields as f}<option value={f}>{f}</option>{/each}
       </select>
     </label>
     <label>
-      <span>Title column</span>
+      <span>
+        Title column
+        <span
+          class="help"
+          tabindex="0"
+          title="A short label or name for each code — the primary text shown in the tree."
+          >?</span
+        >
+      </span>
       <select bind:value={titleCol}>
         <option value="">— select —</option>
         {#each fields as f}<option value={f}>{f}</option>{/each}
       </select>
     </label>
     <label>
-      <span>Description column <em>(optional)</em></span>
+      <span>
+        Description column <em>(optional)</em>
+        <span
+          class="help"
+          tabindex="0"
+          title="A longer, free-text description of each code. Shown only as a hover tooltip, never as the primary label."
+          >?</span
+        >
+      </span>
       <select bind:value={descCol}>
         <option value="">— none —</option>
         {#each fields as f}<option value={f}>{f}</option>{/each}
       </select>
     </label>
+    <label>
+      <span>
+        Level column
+        <span
+          class="help"
+          tabindex="0"
+          title={`Optional. If your file has a column giving each row's hierarchy depth as an integer (not necessarily starting at 1 or sequential), pick it here. Leave on "Auto-detect" to infer depth from the shape of each code instead (e.g. "01" → "01.1" → "01.11", or a NAICS-style "48-49" sector range).`}
+          >?</span
+        >
+      </span>
+      <select bind:value={levelCol}>
+        <option value="">Auto-detect from code structure</option>
+        {#each fields as f}<option value={f}>{f}</option>{/each}
+      </select>
+    </label>
+    {#if !levelCol}
+      <div class="question">
+        <label class="checkbox">
+          <input type="checkbox" bind:checked={dataIncludesParents} />
+          <span>
+            Data includes parent codes
+            <span
+              class="help"
+              tabindex="0"
+              title={`Check this if your file already has an explicit row for every ancestor level (e.g. a row for "01" as well as "01.1" and "01.11"). Leave unchecked if it only lists the most specific codes.`}
+              >?</span
+            >
+          </span>
+        </label>
+        <p class="hint">
+          {#if dataIncludesParents}
+            Each code will nest directly under its own matching ancestor row already
+            present in the file.
+          {:else}
+            If parent codes are not included, they will be generated automatically
+            from each code's own structure (e.g. a "01" row will be created if only
+            "01.a" and "01.b" are present).
+          {/if}
+        </p>
+      </div>
+    {/if}
   </div>
 
   {#if fields.length}
@@ -151,28 +174,16 @@
     margin: 0 0 12px;
     color: var(--text-muted);
   }
-  .level-mode {
+  .question {
+    display: grid;
+    gap: 6px;
+  }
+  .checkbox {
     display: flex;
-    gap: 16px;
-    margin-bottom: 10px;
-    font-size: 12px;
-  }
-  .level-mode .radio {
-    display: inline-flex;
     align-items: center;
-    gap: 5px;
-    cursor: pointer;
-  }
-  .parent-mode {
-    display: flex;
-    gap: 16px;
+    gap: 6px;
     font-size: 12px;
-    margin-bottom: 4px;
-  }
-  .parent-mode .radio {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
+    color: var(--text);
     cursor: pointer;
   }
   .hint {
@@ -191,9 +202,36 @@
     font-size: 12px;
     color: var(--text-muted);
   }
+  label span {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
   label em {
     color: var(--accent);
     font-style: normal;
+  }
+  .help {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--surface-2);
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+    font-size: 10px;
+    font-weight: 700;
+    cursor: help;
+    flex: none;
+  }
+  .help:hover,
+  .help:focus-visible {
+    background: var(--accent-soft);
+    color: var(--accent);
+    border-color: var(--accent);
+    outline: none;
   }
   select {
     width: 100%;

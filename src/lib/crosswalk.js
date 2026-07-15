@@ -2,119 +2,62 @@ import Papa from 'papaparse';
 import { isNoMatch } from './stores.js';
 
 /**
- * Mode A export: one row per A-leaf × B-leaf pair within each group (the full
- * N×N cross-product), joined to descriptions. A no-match group (see
- * isNoMatch) has no counterpart on one side, so it produces one row per code
- * on its populated side with the other side left blank (and no relationship,
- * since there's no correspondence to qualify).
+ * One row per code across every group (both its A-side and B-side leaf
+ * codes), rather than one row per pairing — a group linking 2 A-codes to 3
+ * B-codes produces 5 rows, all sharing the same sequential group_number, not
+ * a 6-row cross-product. A no-match group still gets a group number and
+ * contributes rows for whichever side actually has codes, with a blank
+ * relationship (there's no correspondence to qualify).
  *
  * @param {object[]} groups  mapping groups: { id, name, aLeafCodes, bLeafCodes, note, approx }
- * @param {object|null} systemA  system A (has tree.byCode)
+ * @param {object|null} systemA  system A (has tree.byCode and a name)
  * @param {object|null} systemB  system B
  * @returns {Array<object>}
  */
 export function buildCrosswalkRows(groups, systemA, systemB) {
   const aByCode = systemA?.tree.byCode ?? new Map();
   const bByCode = systemB?.tree.byCode ?? new Map();
+  const aName = systemA?.name || 'A';
+  const bName = systemB?.name || 'B';
   const rows = [];
-  for (const g of groups) {
-    if (isNoMatch(g)) {
-      const aOnly = g.aLeafCodes.length > 0;
-      const codes = aOnly ? g.aLeafCodes : g.bLeafCodes;
-      const byCode = aOnly ? aByCode : bByCode;
-      for (const code of codes) {
-        rows.push({
-          a_code: aOnly ? code : '',
-          a_title: aOnly ? byCode.get(code)?.title ?? '' : '',
-          b_code: aOnly ? '' : code,
-          b_title: aOnly ? '' : byCode.get(code)?.title ?? '',
-          group_name: g.name,
-          relationship: '',
-          note: g.note ?? '',
-        });
-      }
-      continue;
+  groups.forEach((g, i) => {
+    const groupNumber = i + 1;
+    const relationship = isNoMatch(g) ? '' : g.approx ? 'approximate' : 'equal';
+    for (const code of g.aLeafCodes) {
+      const node = aByCode.get(code);
+      rows.push({
+        group_number: groupNumber,
+        system: 'A',
+        system_name: aName,
+        code,
+        title: node?.title ?? '',
+        description: node?.description ?? '',
+        relationship,
+        note: g.note ?? '',
+      });
     }
-    for (const s of g.aLeafCodes) {
-      for (const t of g.bLeafCodes) {
-        rows.push({
-          a_code: s,
-          a_title: aByCode.get(s)?.title ?? '',
-          b_code: t,
-          b_title: bByCode.get(t)?.title ?? '',
-          group_name: g.name,
-          relationship: g.approx ? 'approximate' : 'equal',
-          note: g.note ?? '',
-        });
-      }
+    for (const code of g.bLeafCodes) {
+      const node = bByCode.get(code);
+      rows.push({
+        group_number: groupNumber,
+        system: 'B',
+        system_name: bName,
+        code,
+        title: node?.title ?? '',
+        description: node?.description ?? '',
+        relationship,
+        note: g.note ?? '',
+      });
     }
-  }
+  });
   return rows;
 }
 
-/** Serialize buildCrosswalkRows() output to a CSV string (export mode A). */
+/** Serialize buildCrosswalkRows() output to a CSV string. */
 export function crosswalkToCsv(rows) {
   return Papa.unparse(rows, {
-    columns: [
-      'a_code',
-      'a_title',
-      'b_code',
-      'b_title',
-      'group_name',
-      'relationship',
-      'note',
-    ],
+    columns: ['group_number', 'system', 'system_name', 'code', 'title', 'description', 'relationship', 'note'],
   });
-}
-
-/**
- * Mode B, file 1: many-to-one, one row per A leaf code -> its group name.
- * No-match groups with only B codes contribute no rows here.
- */
-export function buildAToNameRows(groups, systemA) {
-  const aByCode = systemA?.tree.byCode ?? new Map();
-  const rows = [];
-  for (const g of groups) {
-    for (const code of g.aLeafCodes) {
-      rows.push({
-        a_code: code,
-        a_title: aByCode.get(code)?.title ?? '',
-        group_name: g.name,
-        relationship: isNoMatch(g) ? '' : g.approx ? 'approximate' : 'equal',
-      });
-    }
-  }
-  return rows;
-}
-
-/** Serialize buildAToNameRows() output to CSV. */
-export function aToNameCsv(rows) {
-  return Papa.unparse(rows, { columns: ['a_code', 'a_title', 'group_name', 'relationship'] });
-}
-
-/**
- * Mode B, file 2: one-to-many, one row per group name -> B leaf code.
- * No-match groups with only A codes contribute no rows here.
- */
-export function buildNameToBRows(groups, systemB) {
-  const bByCode = systemB?.tree.byCode ?? new Map();
-  const rows = [];
-  for (const g of groups) {
-    for (const code of g.bLeafCodes) {
-      rows.push({
-        group_name: g.name,
-        b_code: code,
-        b_title: bByCode.get(code)?.title ?? '',
-        relationship: isNoMatch(g) ? '' : g.approx ? 'approximate' : 'equal',
-      });
-    }
-  }
-  return rows;
-}
-
-/** Serialize buildNameToBRows() output to CSV. */
-export function nameToBCsv(rows) {
-  return Papa.unparse(rows, { columns: ['group_name', 'b_code', 'b_title', 'relationship'] });
 }
 
 /** Trigger a browser download of `content` (text) as `filename`. */
@@ -122,8 +65,8 @@ export function downloadFile(filename, content, mime = 'text/plain') {
   downloadBlob(filename, new Blob([content], { type: `${mime};charset=utf-8` }));
 }
 
-/** Trigger a browser download of a pre-built `blob` (e.g. a zip archive) as `filename`. */
-export function downloadBlob(filename, blob) {
+/** Trigger a browser download of a pre-built `blob` as `filename`. */
+function downloadBlob(filename, blob) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;

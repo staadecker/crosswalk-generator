@@ -48,10 +48,19 @@ change.
 
 ## Uploading and preparing a system
 
-A user provides a system either by uploading a CSV file or by picking one of
-a few bundled sample datasets with one click (the samples skip straight to a
-built hierarchy with no column-mapping step, so trying the app never
-requires understanding CSV column semantics up front).
+A user provides each system by uploading a CSV file and going through column
+mapping (below). Separately, before either side has any data yet, a
+dismissible banner near the top offers a one-click "Try our demo data" link
+that loads a bundled demo pair — one classification into system A, another
+into system B — straight into a built hierarchy on both sides at once, with
+no column-mapping step and no per-side dataset choice, so trying the app
+never requires understanding CSV column semantics up front. The banner
+disappears once dismissed via its own "X", or automatically as soon as
+either side has data loaded (by upload or by the demo link) — whichever
+happens first. "Restart" (see Global actions below) resets this dismissed
+state along with everything else it clears, so the banner comes back once
+both systems are empty again rather than staying gone for the rest of the
+session just because it was dismissed once before.
 
 **Required and optional columns.** Every CSV must have a code column and a
 title column. It may optionally have a description column (shown only as a
@@ -59,7 +68,29 @@ hover tooltip, never as a primary label) and either an explicit level column
 or no level column at all (see auto-detection below). The app should guess
 which uploaded column plays which role and let the user confirm or override
 every guess before building the hierarchy; the guess should never block
-upload, only pre-fill a choice.
+upload, only pre-fill a choice. Every field in the column-mapping step has a
+small "?" hover icon next to it giving a short explanation of what that
+field/choice means, since a first-time user shouldn't need to already
+understand the data model to get through upload.
+
+The column-mapping fields appear in this order: code column, title column,
+description column, then level column — level comes last since it's the one
+most users leave on its default.
+
+The level column is the one exception to "guess pre-fills a choice": it is
+always presented as a single dropdown that starts on "Auto-detect from code
+structure" regardless of whatever column the guesser thinks looks
+level-shaped, since auto-detect is the recommended default and shouldn't be
+silently overridden by an unconfirmed guess — the user must deliberately pick
+a field from the dropdown to switch to an explicit level column. Whenever the
+dropdown is left on auto-detect, a "Data includes parent codes" checkbox
+(unchecked by default, i.e. auto-generate — see auto-detect parent handling
+below) appears below it, since that choice only matters for auto-detected
+hierarchies. Unlike the other fields, its explanation of what happens when
+left unchecked (ancestor codes get auto-generated) is shown as plain,
+always-visible text next to the checkbox, not only behind the "?" hover icon —
+that specific behavior is consequential enough (it changes the shape of the
+resulting tree) to not be hidden behind a hover.
 
 - The code column is guessed as the column whose values are short and
   highly unique across the file, favoring a column literally named
@@ -156,12 +187,13 @@ picks one of two modes:
    exists specifically because its own code is needed by another real code
    too, so it always has at least two children by construction.)
 
-The bundled sample datasets already include an explicit row for every
+The bundled demo datasets already include an explicit row for every
 ancestor level, so they use mode 1.
 
 *Where this lives: `src/lib/csv.js` (column guessing), `src/lib/hierarchy.js`
 (level inference, parent synthesis), `src/components/ColumnMapper.svelte`
-and `src/components/SystemPanel.svelte` (upload/sample UI).*
+and `src/components/SystemPanel.svelte` (upload UI), `src/App.svelte` (the
+demo-data banner).*
 
 ## Browsing a system
 
@@ -169,7 +201,12 @@ Each loaded system is shown as a collapsible, searchable tree.
 
 - Top-level codes are expanded by default so the tree isn't a wall of
   collapsed roots; deeper levels start collapsed. The user can expand or
-  collapse everything, or toggle one section at a time.
+  collapse everything, or toggle one section at a time. This default-expand
+  only ever applies once, the moment a system's hierarchy is first built —
+  never again afterward as a side effect of the user's own later collapsing.
+  In particular, collapsing every currently-open section (via the "Collapse"
+  button, or by manually toggling the last one closed by hand) must actually
+  leave the tree fully collapsed, not silently re-expand the roots back out.
 - Typing in the search box filters to codes whose code or title contains the
   query (case-insensitive), keeping any ancestor needed to reach a match
   visible even if the ancestor itself doesn't match. Starting or refining a
@@ -196,7 +233,12 @@ Each loaded system is shown as a collapsible, searchable tree.
   descendants so progress is visible at a glance without hiding anything.
   Each system also shows an overall progress bar (mapped leaves out of
   total leaves for that system), which turns a distinct "complete" color at
-  100%. An ancestor only gets the same visual de-emphasis as a mapped leaf
+  100%. This "N of M mapped" leaf count is the only total the panel header
+  shows — there is no separate raw node/row count displayed anywhere, since a
+  system's node count (which includes ancestor/parent rows that are never
+  individually mappable) is a different, larger number than its leaf count
+  and showing both side by side previously read as a bug ("it says 1134
+  codes but only 1047 mapped"). An ancestor only gets the same visual de-emphasis as a mapped leaf
   once its *entire* subtree is mapped (N of M reaching M of M) — a
   partially-mapped ancestor keeps its normal, undimmed appearance, since
   unlike a mapped leaf it is still a live, clickable affordance (clicking it
@@ -250,7 +292,7 @@ selection lists — the choice applies to the *next* mapping created and
 persists across links until changed, so a user creating several approximate
 mappings in a row doesn't have to reselect it each time; it can still be
 changed after the fact (see "Editing an existing mapping" below). Pressing
-the `L` key is equivalent to clicking the Link button (only while it's the
+the `G` key is equivalent to clicking the Group button (only while it's the
 live action, i.e. both sides have a selection) — the shortcut is ignored
 while focus is in a text input (the search box, a note field, etc.) so it
 can never interrupt normal typing.
@@ -303,6 +345,11 @@ looking at. With hundreds of mapping rows the matching row is often off
 the visible list, so the highlight is paired with scrolling that row into
 view — but only just enough to make it visible (never re-centering a row
 that's already on screen, which would be a distracting jump for no reason).
+Within a highlighted row, the specific code bubble the hovered code actually
+falls under (not every bubble in that row) gets its own, more prominent
+highlight too — a compacted bubble can represent several leaves, so this
+follows the same leaf-overlap check as the row-level highlight, just scoped
+to that one bubble's leaf set.
 
 Going the other direction, clicking a code chip in the mapping list reveals
 that code in its own tree: any collapsed ancestor needed to reach it is
@@ -360,33 +407,45 @@ The app must work with zero setup and never lose work silently:
 
 ## Exporting the crosswalk
 
-A single export action produces one downloadable archive containing three
-CSV files that together represent the current mappings in different useful
-shapes — a user should never have to choose a format up front or trigger
-multiple separate downloads:
+A single export action produces one downloadable CSV — a user should never
+have to choose a format up front or trigger multiple separate downloads.
+Clicking the toolbar's export button never downloads anything by itself: it
+first opens a citation-agreement popup (crediting Crosswalk Generator/its
+license) with its own "Export" button, disabled until the user checks an
+explicit "I agree to credit..." checkbox; only confirming that popup triggers
+the actual download. Canceling the popup (its own Cancel button, Escape, or
+its backdrop) closes it without downloading anything.
 
-1. **The full pairwise crosswalk** — one row for every individual A-leaf ×
-   B-leaf combination within each group (so a group linking 2 A-codes to 3
-   B-codes produces 6 rows), each row carrying both codes' titles, the
-   group's name and note, and whether the relationship is "equal" or
-   "approximate." A no-match entry has no pairing to produce, so it instead
-   contributes one row per flagged code with the other side's fields left
-   blank and no relationship value (there is nothing to qualify).
-2. **A-to-name** — one row per A-side leaf code mapping it to its group's
-   name (many A-codes can point to the same name), for consumers that want
-   a simple many-to-one join from A. A no-match entry with only B-side codes
-   contributes nothing to this file (it has no A-side code to list); an
-   A-side no-match entry does contribute, with a blank relationship.
-3. **Name-to-B** — the mirror of the above: one row per B-side leaf code
-   mapping it to its group's name, for a one-to-many join into B.
+The CSV has one row *per code* (not per A×B pairing): every group contributes
+one row for each of its A-side leaf codes and one row for each of its B-side
+leaf codes, all sharing that group's number. A group linking 2 A-codes to 3
+B-codes therefore produces 5 rows, not a 6-row cross-product. Columns:
 
-The exported archive's filename should reflect both systems' names (falling
-back to generic labels if a name was never set) and the export date, so
-multiple exports over time or across dataset pairs don't collide or require
-manual renaming.
+- `group_number` — sequential, starting at 1 in group order (not derived from
+  the group's name or codes).
+- `system` — literally "A" or "B", identifying which side the row belongs to
+  regardless of what either system was named.
+- `system_name` — the owning system's own name (falling back to "A"/"B" if a
+  name was never set), so a row can also be told apart from its
+  counterpart(s) in the other system by a human-readable label, not just the
+  `system` letter.
+- `code`, `title`, `description` — the code's own fields, joined from its
+  system's hierarchy (`description` blank if the system has no description
+  column).
+- `relationship` — "equal" or "approximate", repeated on every row belonging
+  to that group; blank for a no-match entry (there is nothing to qualify).
+- `note` — the group's free-text note, repeated on every row belonging to
+  that group.
 
-*Where this lives: `src/lib/crosswalk.js`, `src/lib/zip.js`,
-`src/components/Toolbar.svelte`.*
+A no-match entry still gets its own group number and contributes rows only
+for whichever side actually has codes.
+
+The exported filename should reflect both systems' names (falling back to
+generic labels if a name was never set) and the export date, so multiple
+exports over time or across dataset pairs don't collide or require manual
+renaming.
+
+*Where this lives: `src/lib/crosswalk.js`, `src/components/Toolbar.svelte`.*
 
 ## Global actions
 
@@ -395,20 +454,20 @@ manual renaming.
   while a real action is available.
 - The export action should be disabled when there are no mappings at all,
   since there would be nothing meaningful to produce.
-- Clearing everything (both systems, every mapping, all selections, and
-  undo/redo history) is destructive and irreversible and must require the
-  user to confirm before it happens.
+- Clearing everything ("Restart": both systems, every mapping, all
+  selections, and undo/redo history) is destructive and irreversible and
+  must require the user to confirm before it happens.
 - A "?" help button in the toolbar opens an overlay concisely explaining
-  what the tool does and the basic upload → select → link → export flow,
-  plus a short list of keyboard shortcuts (currently just `L` for Link). The
+  what the tool does and the basic upload → select → group → export flow,
+  plus a short list of keyboard shortcuts (currently just `G` for Group). The
   overlay closes via its own close button, the Escape key, or clicking its
-  backdrop. While it's open, the `L` shortcut is suppressed (checked via a
+  backdrop. While it's open, the `G` shortcut is suppressed (checked via a
   shared `helpOpen` store) so a keypress meant to dismiss/read the overlay
   can never silently create a mapping behind it.
 
 *Where this lives: `src/components/Toolbar.svelte` (undo/redo, export,
-project save/load, clear, the help overlay), `src/lib/stores.js` (the
-`helpOpen` store checked by the Link shortcut).*
+project save/load, restart, the help overlay), `src/lib/stores.js` (the
+`helpOpen` store checked by the Group shortcut).*
 
 ## Explicit non-goals
 
