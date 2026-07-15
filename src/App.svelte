@@ -15,6 +15,8 @@
     addToSelection,
     hoverA,
     hoverB,
+    focusA,
+    focusB,
   } from './lib/stores.js';
 
   // Offered as one-click "try sample data" shortcuts on both sides — either side can
@@ -50,6 +52,7 @@
         onClear={() => clearSelection(selectionA)}
         onHover={(code) => hoverA.set(code)}
         onSelectUnmapped={(codes) => addToSelection(selectionA, codes)}
+        focusRequest={$focusA}
       />
     </section>
 
@@ -87,6 +90,7 @@
         onClear={() => clearSelection(selectionB)}
         onHover={(code) => hoverB.set(code)}
         onSelectUnmapped={(codes) => addToSelection(selectionB, codes)}
+        focusRequest={$focusB}
       />
     </section>
   </main>

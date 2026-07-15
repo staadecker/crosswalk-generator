@@ -1,5 +1,11 @@
 {
   "worktree": {
     "bgIsolation": "none"
+  },
+  "permissions": {
+    "deny": [
+      "Edit(README.md)",
+      "Write(README.md)"
+    ]
   }
 }

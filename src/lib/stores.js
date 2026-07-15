@@ -101,6 +101,25 @@ export const selectionB = writable(new Set());
 export const hoverA = writable(null);
 export const hoverB = writable(null);
 
+/**
+ * A request to reveal one code in the A/B tree panel: `{ code, ts }` or null.
+ * Set (e.g. by clicking a code bubble in the Mappings pane) to have that
+ * side's TreePanel expand the code's ancestors, scroll it into view, and
+ * flash it. `ts` makes every request a distinct object so clicking the same
+ * code twice in a row still re-triggers the effect.
+ */
+export const focusA = writable(null);
+export const focusB = writable(null);
+
+// Whether the help overlay is open — checked by the 'L' shortcut so it can't
+// fire invisibly behind the overlay while the user is reading it.
+export const helpOpen = writable(false);
+
+/** Request that a tree panel reveal (expand/scroll/flash) the given code. */
+export function focusCode(side, code) {
+  (side === 'A' ? focusA : focusB).set({ code, ts: Date.now() });
+}
+
 /** Toggle a code in/out of a selection Set store. */
 export function toggleSelection(store, code) {
   store.update(($s) => {
@@ -234,7 +253,7 @@ function codesUsedElsewhere($mappings, side, excludeGroupId) {
  *
  * @returns {{ skippedA: string[], skippedB: string[] }}
  */
-export function addGroup(aLeafCodes, bLeafCodes, name, note = '') {
+export function addGroup(aLeafCodes, bLeafCodes, name, note = '', approx = false) {
   let skippedA = [];
   let skippedB = [];
   mappings.update(($m) => {
@@ -265,7 +284,7 @@ export function addGroup(aLeafCodes, bLeafCodes, name, note = '') {
       aLeafCodes: aCodes,
       bLeafCodes: bCodes,
       note,
-      approx: false, // equal by default — see toggleApprox
+      approx, // "equal" by default — see toggleApprox for flipping it post-creation
     };
     return [...next, group];
   });

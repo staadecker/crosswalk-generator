@@ -145,6 +145,16 @@ picks one of two modes:
    silently merging two unrelated nodes. Every synthesized or reparented
    code must still end up in a stable, sensible sort position among its
    siblings (natural/numeric order), not just appended after real codes.
+   Finally, a blank-title placeholder that would end up wrapping only a
+   single child (real or itself another placeholder) is elided rather than
+   created: that child is reparented directly onto the placeholder's own
+   parent instead, cascading up the chain if that in turn leaves *that*
+   ancestor with only one child too. A placeholder with two or more children
+   is a real grouping and is always kept — only single-child wrappers add no
+   navigational value and are skipped. (`20 (group)`-style collision
+   placeholders are never subject to this elision: a collision placeholder
+   exists specifically because its own code is needed by another real code
+   too, so it always has at least two children by construction.)
 
 The bundled sample datasets already include an explicit row for every
 ancestor level, so they use mode 1.
@@ -166,7 +176,13 @@ Each loaded system is shown as a collapsible, searchable tree.
   search should auto-expand exactly the sections needed to reveal the
   current matches, once — after that, the user must be free to manually
   collapse any section, including one that's currently part of the search
-  results, without the app forcing it back open on a later interaction.
+  results, without the app forcing it back open on a later interaction. A
+  broad early keystroke (e.g. a single common letter, which can legitimately
+  match nearly everything) is expected to auto-expand a large part of the
+  tree for that instant, but that expansion must not persist once the query
+  is refined or cleared — only sections the user explicitly touched stay
+  expanded once the search ends, so a finished search never leaves the tree
+  permanently more exploded than it was before that search began.
 - A section should automatically collapse itself the moment every leaf
   beneath it becomes mapped, so a tree fills with visual "done" signals as
   work progresses — but only at the moment that transition happens, not
@@ -180,7 +196,13 @@ Each loaded system is shown as a collapsible, searchable tree.
   descendants so progress is visible at a glance without hiding anything.
   Each system also shows an overall progress bar (mapped leaves out of
   total leaves for that system), which turns a distinct "complete" color at
-  100%.
+  100%. An ancestor only gets the same visual de-emphasis as a mapped leaf
+  once its *entire* subtree is mapped (N of M reaching M of M) — a
+  partially-mapped ancestor keeps its normal, undimmed appearance, since
+  unlike a mapped leaf it is still a live, clickable affordance (clicking it
+  selects its remaining unmapped leaves; see "Selecting codes" below), and
+  dimming it the same way a "done" code is dimmed would misleadingly suggest
+  there's nothing left to do there.
 - Hovering any code shows its longer description as a tooltip if one was
   provided, or its title otherwise — including for an already-mapped or
   locked code, since the information is still useful there and the cursor
@@ -221,7 +243,17 @@ row per pairing. The group's name defaults to the linked A-side leaf codes
 themselves (semicolon-joined), since a title can be long or missing while a
 code is always short and stable, though the underlying leaf set — not the
 name — is what actually defines the mapping. An optional note can be
-attached to the new group at creation time.
+attached to the new group at creation time. Before linking, the user also
+picks whether the mapping being created is "equal" (the default) or
+"approximately equal" via a two-option switch sitting between the two
+selection lists — the choice applies to the *next* mapping created and
+persists across links until changed, so a user creating several approximate
+mappings in a row doesn't have to reselect it each time; it can still be
+changed after the fact (see "Editing an existing mapping" below). Pressing
+the `L` key is equivalent to clicking the Link button (only while it's the
+live action, i.e. both sides have a selection) — the shortcut is ignored
+while focus is in a text input (the search box, a note field, etc.) so it
+can never interrupt normal typing.
 
 **Flagging no-match.** With a selection on exactly one side (and nothing
 selected on the other), the user can instead flag those codes as having no
@@ -255,8 +287,9 @@ side moves it there instead of duplicating it, and that move must never
 itself be treated as a conflict with the group it's leaving. Removing a chip
 removes every leaf code it represents; a group with no codes left on either
 side disappears entirely. Each group's relationship can be toggled between
-"equal" (the default) and "approximately equal" via a two-way control,
-reflecting that a crosswalk relationship isn't inherently one-directional. A
+"equal" (shown as `=`) and "approximately equal" (shown as `≈`) with a
+single click on that glyph, matching the equal/approx switch used at
+creation time so the two controls read as the same concept. A
 group's note is editable at any time but should stay compact, static text
 until the user explicitly opens it for editing, since a project can have
 hundreds of mapping rows and every row being an always-open text field would
@@ -266,11 +299,22 @@ make the list unscannable.
 should highlight every mapping group that touches it — including, for an
 ancestor, every group touching any of its leaf descendants — in the mapping
 list, so a user can quickly see what's already been done for a code they're
-looking at.
+looking at. With hundreds of mapping rows the matching row is often off
+the visible list, so the highlight is paired with scrolling that row into
+view — but only just enough to make it visible (never re-centering a row
+that's already on screen, which would be a distracting jump for no reason).
 
-*Where this lives: `src/lib/stores.js` (mapping mutations and the
-uniqueness rule), `src/components/MappingBar.svelte` (creating mappings),
-`src/components/MappingList.svelte` (editing existing mappings).*
+Going the other direction, clicking a code chip in the mapping list reveals
+that code in its own tree: any collapsed ancestor needed to reach it is
+expanded, the tree scrolls to it, and it flashes briefly so the user's eye
+finds it immediately rather than having to scan for it.
+
+*Where this lives: `src/lib/stores.js` (mapping mutations, the uniqueness
+rule, and the focus-request store used for the click-to-reveal),
+`src/components/MappingBar.svelte` (creating mappings),
+`src/components/MappingList.svelte` (editing existing mappings, hover-driven
+scroll, click-to-reveal), `src/components/TreePanel.svelte` (expand/scroll/
+flash in response to a reveal request).*
 
 ## Undo and redo
 
@@ -354,6 +398,17 @@ manual renaming.
 - Clearing everything (both systems, every mapping, all selections, and
   undo/redo history) is destructive and irreversible and must require the
   user to confirm before it happens.
+- A "?" help button in the toolbar opens an overlay concisely explaining
+  what the tool does and the basic upload → select → link → export flow,
+  plus a short list of keyboard shortcuts (currently just `L` for Link). The
+  overlay closes via its own close button, the Escape key, or clicking its
+  backdrop. While it's open, the `L` shortcut is suppressed (checked via a
+  shared `helpOpen` store) so a keypress meant to dismiss/read the overlay
+  can never silently create a mapping behind it.
+
+*Where this lives: `src/components/Toolbar.svelte` (undo/redo, export,
+project save/load, clear, the help overlay), `src/lib/stores.js` (the
+`helpOpen` store checked by the Link shortcut).*
 
 ## Explicit non-goals
 

@@ -9,6 +9,7 @@
     toggleApprox,
     hoverA,
     hoverB,
+    focusCode,
   } from '../lib/stores.js';
   import { compactCodes, expandToLeaves } from '../lib/hierarchy.js';
   import noteIcon from '@material-design-icons/svg/filled/sticky_note_2.svg?raw';
@@ -139,6 +140,21 @@
     return ids;
   });
 
+  // A hover-driven highlight is often off-screen in a list with hundreds of
+  // rows, so scroll the first newly-highlighted row into view (not just
+  // highlight it) — `block: 'nearest'` only moves the scroll position if the
+  // row genuinely isn't visible, so hovering something already in view never
+  // causes a jarring jump. Only fires when a hover actually starts a new
+  // highlight (guarded by the `ids.size` check), never on hover-end.
+  let rowsEl;
+  $effect(() => {
+    const ids = highlightedIds;
+    if (!ids.size || !rowsEl) return;
+    const firstId = [...ids][0];
+    const el = rowsEl.querySelector(`[data-group-id="${CSS.escape(firstId)}"]`);
+    el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  });
+
   function removeBubble(groupId, side, bubble) {
     removeCodesFromGroup(groupId, side, bubble.leaves);
   }
@@ -178,14 +194,14 @@
     {/if}
   </header>
 
-  <div class="rows">
+  <div class="rows" bind:this={rowsEl}>
     {#if mappings.length === 0}
       <p class="empty">No mappings yet. Click codes on each side, then <strong>Link</strong> them.</p>
     {:else if visible.length === 0}
       <p class="empty">No mappings touch the current selection.</p>
     {:else}
       {#each visible as m (m.id)}
-        <div class="row" class:nomatch={m.noMatch} class:highlighted={highlightedIds.has(m.id)}>
+        <div class="row" data-group-id={m.id} class:nomatch={m.noMatch} class:highlighted={highlightedIds.has(m.id)}>
           <div class="row-head">
             <div class="pair">
               <div
@@ -204,6 +220,7 @@
                       role="listitem"
                       draggable="true"
                       use:fastTooltip={() => b.tooltip}
+                      onclick={() => focusCode('A', b.code)}
                       ondragstart={(e) => {
                         e.dataTransfer.setData('text/plain', b.code);
                         e.dataTransfer.setData('application/x-crosswalk-side', 'A');
@@ -215,7 +232,10 @@
                       <button
                         class="bubble-x"
                         aria-label="Remove {b.code} from {m.name}"
-                        onclick={() => removeBubble(m.id, 'A', b)}
+                        onclick={(e) => {
+                          e.stopPropagation();
+                          removeBubble(m.id, 'A', b);
+                        }}
                       >
                         ✕
                       </button>
@@ -231,7 +251,7 @@
                 aria-label="Toggle equal/approximately-equal for {m.name}"
                 onclick={() => toggleApprox(m.id)}
               >
-                {m.approx ? '≈' : '⇄'}
+                {m.approx ? '≈' : '='}
               </button>
               <div
                 class="side"
@@ -249,6 +269,7 @@
                       role="listitem"
                       draggable="true"
                       use:fastTooltip={() => b.tooltip}
+                      onclick={() => focusCode('B', b.code)}
                       ondragstart={(e) => {
                         e.dataTransfer.setData('text/plain', b.code);
                         e.dataTransfer.setData('application/x-crosswalk-side', 'B');
@@ -260,7 +281,10 @@
                       <button
                         class="bubble-x"
                         aria-label="Remove {b.code} from {m.name}"
-                        onclick={() => removeBubble(m.id, 'B', b)}
+                        onclick={(e) => {
+                          e.stopPropagation();
+                          removeBubble(m.id, 'B', b);
+                        }}
                       >
                         ✕
                       </button>
@@ -281,7 +305,7 @@
               >
                 {@html noteIcon}
               </button>
-              <button class="danger" title="Remove this whole mapping" onclick={() => removeMapping(m.id)}>✕</button>
+              <button class="remove-btn" title="Remove this whole mapping" aria-label="Remove mapping {m.name}" onclick={() => removeMapping(m.id)}>✕</button>
             </div>
           </div>
           {#if editingNote.has(m.id)}
@@ -378,7 +402,7 @@
   }
   .row-head {
     display: flex;
-    align-items: start;
+    align-items: center;
     gap: 8px;
   }
   .row-actions {
@@ -386,6 +410,25 @@
     display: flex;
     align-items: center;
     gap: 2px;
+  }
+  .remove-btn {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border: none;
+    background: none;
+    padding: 0;
+    color: var(--text-muted);
+    font-size: 12px;
+    border-radius: var(--radius-sm);
+    transition: background 0.12s ease, color 0.12s ease;
+  }
+  .remove-btn:hover {
+    background: color-mix(in srgb, var(--danger) 12%, transparent);
+    color: var(--danger);
   }
   .icon-btn {
     flex: none;

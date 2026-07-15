@@ -636,8 +636,10 @@ check(noDesc.byCode.get('w').description === '', 'node.description is blank when
   // trailing segment — appropriate for finding an *existing* more-specific
   // code (see reparentDottedCodes / task "13.20 nests under 13.1"), but wrong
   // for inventing brand-new placeholders: a dot-only system only ever implies
-  // one level per "."-segment, so only "13.20" (and "13") should be created,
-  // never a fabricated "13.2" or "13.20.1".
+  // one level per "."-segment, so only "13.20" (and "13") should be
+  // considered, never a fabricated "13.2" or "13.20.1". "13" itself is then
+  // elided (see the single-child-placeholder test below) since it would
+  // wrap only "13.20" — so only "13.20" ends up actually synthesized here.
   const rows = [
     { c: '13.20.11', t: 'Sub 20, item 11' },
     { c: '13.20.12', t: 'Sub 20, item 12' },
@@ -645,13 +647,13 @@ check(noDesc.byCode.get('w').description === '', 'node.description is blank when
   const synthesized = synthesizeMissingParents(rows, { code: 'c', title: 't' });
   const codes = synthesized.map((r) => r.c).sort();
   check(
-    codes.join(',') === '13,13.20,13.20.11,13.20.12',
-    `only whole-segment ancestors ("13", "13.20") are synthesized, not a fabricated "13.2"/"13.20.1" (got ${codes.join(',')})`,
+    codes.join(',') === '13.20,13.20.11,13.20.12',
+    `only whole-segment ancestors are synthesized, not a fabricated "13.2"/"13.20.1" — and a single-child "13" wrapper is elided (got ${codes.join(',')})`,
   );
   const tree = buildAutoHierarchy(rows, { code: 'c', title: 't' }, { synthesizeParents: true });
   check(tree.byCode.get('13.20.11').parent === '13.20', '13.20.11 nests directly under the synthesized 13.20');
   check(tree.byCode.get('13.20.12').parent === '13.20', '13.20.12 nests directly under the synthesized 13.20');
-  check(tree.byCode.get('13.20').parent === '13', '13.20 nests under the synthesized 13');
+  check(tree.byCode.get('13.20').parent === null, '13.20 is itself a root — the single-child "13" wrapper was elided rather than synthesized');
 }
 {
   // Regression: the exact "26.a (group)" scenario reported — a real code that
@@ -679,6 +681,9 @@ check(noDesc.byCode.get('w').description === '', 'node.description is blank when
   // both filled in, using the lengths already known from sibling branches (11/111/1111).
   // Since "11" and "111" are themselves real codes that also serve as another real
   // code's natural ancestor, they collide and get "(group)"-disambiguated too.
+  // "311" and "3111" would each wrap only a single child ("3111" and "31111"
+  // respectively), so both are elided and "31111" ends up nested directly
+  // under "31 (group)".
   const rows = [
     { c: '11', t: 'Root A' },
     { c: '111', t: 'Sub A' },
@@ -689,14 +694,43 @@ check(noDesc.byCode.get('w').description === '', 'node.description is blank when
   const synthesized = synthesizeMissingParents(rows, { code: 'c', title: 't' });
   const codes = synthesized.map((r) => r.c).sort();
   check(
-    codes.join(',') === '11,11 (group),111,111 (group),1111,31,31 (group),311,3111,31111',
-    `length-based synthesis fills missing levels and disambiguates colliding ones (got ${codes.join(',')})`,
+    codes.join(',') === '11,11 (group),111,111 (group),1111,31,31 (group),31111',
+    `length-based synthesis fills missing levels, disambiguates colliding ones, and elides single-child "311"/"3111" wrappers (got ${codes.join(',')})`,
   );
   const tree = buildAutoHierarchy(rows, { code: 'c', title: 't' }, { synthesizeParents: true });
-  check(tree.byCode.get('31111').parent === '3111', 'deep leaf nests under the synthesized 3111');
-  check(tree.byCode.get('3111').parent === '311', 'synthesized 3111 nests under synthesized 311');
-  check(tree.byCode.get('311').parent === '31 (group)', 'synthesized 311 nests under the new "31 (group)", not the real 31 directly');
-  check(tree.byCode.get('31').parent === '31 (group)', 'the real 31 is demoted to a sibling of 311 under "31 (group)"');
+  check(tree.byCode.get('31111').parent === '31 (group)', 'deep leaf nests directly under "31 (group)" — the single-child 311/3111 wrappers are elided');
+  check(!tree.byCode.has('311'), 'the single-child "311" wrapper is not created at all');
+  check(!tree.byCode.has('3111'), 'the single-child "3111" wrapper is not created at all');
+  check(tree.byCode.get('31').parent === '31 (group)', 'the real 31 is demoted to a sibling of 31111 under "31 (group)"');
+}
+{
+  // A blank-title placeholder that ends up with two or more children is a
+  // real organizational grouping and must be kept — only single-child
+  // wrappers get elided. "01" has real children "01.a" and "01.b", so it
+  // survives synthesis exactly as before.
+  const rows = [
+    { c: '01.a', t: 'Sub A' },
+    { c: '01.b', t: 'Sub B' },
+  ];
+  const tree = buildAutoHierarchy(rows, { code: 'c', title: 't' }, { synthesizeParents: true });
+  check(tree.byCode.has('01'), 'a synthesized parent with two real children is kept, not elided');
+  check(tree.byCode.get('01.a').parent === '01', '01.a still nests under the kept "01"');
+  check(tree.byCode.get('01.b').parent === '01', '01.b still nests under the kept "01"');
+}
+{
+  // Cascading elision: three single-child placeholder levels in a row all
+  // collapse away, landing the leaf directly at the root — not just the
+  // immediate parent, but every ancestor up the chain that would otherwise
+  // wrap exactly one child.
+  const rows = [{ c: '1.2.3.4', t: 'Deeply nested, alone' }];
+  const synthesized = synthesizeMissingParents(rows, { code: 'c', title: 't' });
+  const codes = synthesized.map((r) => r.c).sort();
+  check(
+    codes.join(',') === '1.2.3.4',
+    `every single-child ancestor wrapper ("1", "1.2", "1.2.3") cascades away, leaving only the real leaf (got ${codes.join(',')})`,
+  );
+  const tree = buildAutoHierarchy(rows, { code: 'c', title: 't' }, { synthesizeParents: true });
+  check(tree.byCode.get('1.2.3.4').parent === null, 'the leaf becomes a root once every wrapping ancestor is elided');
 }
 {
   // buildAutoHierarchy's own synthesizeParents option composes end-to-end.
@@ -732,7 +766,10 @@ check(noDesc.byCode.get('w').description === '', 'node.description is blank when
   check(tree.byCode.get('111').parent === '111 (group)', 'branch A: 111 falls under its own "111 (group)"');
   check(tree.byCode.get('111 (group)').parent === '11 (group)', 'branch A: "111 (group)" nests under "11 (group)", not root B');
   check(tree.byCode.get('1111').parent === '111 (group)', 'branch A: 1111 nests under synthesized "111 (group)"');
-  check(tree.byCode.get('31111').parent === '3111', 'branch B: deep leaf nests under synthesized 3111');
+  // 311 and 3111 would each wrap only a single child, so both are elided and
+  // 31111 nests directly under "31 (group)" — see the single-child-wrapper
+  // elision tests above.
+  check(tree.byCode.get('31111').parent === '31 (group)', 'branch B: deep leaf nests directly under "31 (group)", single-child 311/3111 wrappers elided');
   check(
     tree.roots.map((r) => r.code).sort().join(',') === '11 (group),31 (group)',
     'both branches keep separate, un-merged roots after synthesis',

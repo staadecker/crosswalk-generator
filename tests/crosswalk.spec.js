@@ -705,6 +705,11 @@ test('per-node progress fraction badges, mapped-code tooltip/cursor, auto-collap
   await expect(node11111.locator('.badge')).toHaveText('✓');
   await expect(node11111.locator('.badge')).toHaveClass(/full/);
 
+  // --- A partially-mapped parent is still clickable (its remaining unmapped
+  // leaves via "select unmapped"), so it must not read as grayed-out/"done"
+  // like a fully-mapped code does. ---
+  await expect(node1111).not.toHaveClass(/mapped/);
+
   // --- A mapped code is always locked against a second mapping (no toggle to
   // enable this anymore), but still shows a plain description tooltip and a
   // normal cursor rather than an explanatory "why disabled" message or a
@@ -725,6 +730,9 @@ test('per-node progress fraction badges, mapped-code tooltip/cursor, auto-collap
   await page.getByRole('button', { name: 'Link' }).click();
   await expect(node1111.locator('.badge')).toHaveText('2/2');
   await expect(node1111.locator('.badge')).toHaveClass(/full/);
+  // Now that every leaf underneath is mapped, the parent itself reads as
+  // grayed-out/"done" too.
+  await expect(node1111).toHaveClass(/mapped/);
   await expect(node11112).toHaveCount(0); // auto-collapsed, child rows gone
 
   await node1111.locator('.twist').click();
@@ -745,6 +753,164 @@ test('per-node progress fraction badges, mapped-code tooltip/cursor, auto-collap
   await node1121.locator('.twist').click();
   await expect(node11211).toHaveCount(0); // collapsed even though it's a search match
   await expect(node1121).toBeVisible(); // the collapsed node itself stays visible
+
+  expect(errors, `browser errors:\n${errors.join('\n')}`).toEqual([]);
+});
+
+test('search auto-expand retracts on clear instead of leaking into a permanently exploded tree', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
+
+  await page.goto('./');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+
+  const csvInput = page.locator('input[type=file][accept*="csv"]');
+  await csvInput.first().setInputFiles(A);
+  await page.getByLabel('Parent codes already included').check();
+  await page.getByRole('button', { name: 'Build hierarchy' }).click();
+
+  const panelA = page.locator('.panel[data-accent="A"]');
+  const search = panelA.locator('input[type=search]');
+  const before = await panelA.locator('.node').count();
+  const deepLeaf = panelA.locator('.node', { hasText: /\b11111\b/ });
+
+  // --- A broad single-character query (matches almost every numeric NAICS
+  // code) legitimately auto-expands nearly the whole tree to reveal all its
+  // matches... ---
+  await search.fill('1');
+  await expect(deepLeaf).toBeVisible();
+  const during = await panelA.locator('.node').count();
+  expect(during).toBeGreaterThan(before);
+
+  // ...but clearing it must put all of that auto-expansion back. Previously
+  // the auto-expand effect only ever added ancestors and never retracted
+  // them, so a single broad keystroke like this left the tree permanently
+  // exploded even after the search ended. ---
+  await search.fill('');
+  await expect(deepLeaf).toHaveCount(0);
+  await expect(panelA.locator('.node')).toHaveCount(before);
+
+  // --- A section the user explicitly collapses *during* a search is their
+  // own choice and must stay collapsed once the search ends, even though the
+  // search itself also needed it open to reveal a match. ---
+  await search.fill('Cattle');
+  const node1121 = panelA.locator('.node', { hasText: /\b1121\b/ });
+  const node11211 = panelA.locator('.node', { hasText: /\b11211\b/ });
+  await expect(node11211).toBeVisible();
+  await node1121.locator('.twist').click();
+  await expect(node11211).toHaveCount(0);
+  await search.fill('');
+  await expect(node11211).toHaveCount(0); // stays collapsed — the user owns it, clearing doesn't reopen it
+
+  // --- A root that was already expanded by default (not by the search, not
+  // by the user) must not be wrongly retracted just because it also
+  // happened to be a needed ancestor while the search was active. ---
+  const node111 = panelA.locator('.node', { hasText: /\b111\b/ });
+  await expect(node111).toBeVisible();
+
+  expect(errors, `browser errors:\n${errors.join('\n')}`).toEqual([]);
+});
+
+test('clicking a code bubble in the Mappings pane reveals and flashes it in its tree panel', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
+
+  await page.goto('./');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+
+  const csvInput = page.locator('input[type=file][accept*="csv"]');
+  await csvInput.first().setInputFiles(A);
+  await page.getByLabel('Parent codes already included').check();
+  await page.getByRole('button', { name: 'Build hierarchy' }).click();
+  await csvInput.first().setInputFiles(B);
+  await page.getByLabel('Parent codes already included').check();
+  await page.getByRole('button', { name: 'Build hierarchy' }).click();
+
+  const panelA = page.locator('.panel[data-accent="A"]');
+  const panelB = page.locator('.panel[data-accent="B"]');
+  for (const b of await page.locator('.controls button', { hasText: 'Expand' }).all()) await b.click();
+
+  // Map only one of 1111's two leaf children (11111) so the group's bubble
+  // can't compact past the raw leaf — 1111 (Oilseed and Grain Farming) has
+  // two leaves, 11111 and 11112, so leaving 11112 unselected guarantees a
+  // real depth-4 code to test with, rather than one already compacted up to
+  // a shallower, always-visible ancestor.
+  await panelA.locator('.node', { hasText: /\b11111\b/ }).click();
+  await panelB.locator('.node', { hasText: /\b01\.11\b/ }).first().click();
+  await page.getByRole('button', { name: 'Link' }).click();
+
+  // Collapse everything, confirming the mapped leaf is genuinely hidden.
+  await panelA.locator('button', { hasText: 'Collapse' }).click();
+  const target = panelA.locator('.node', { hasText: /\b11111\b/ });
+  await expect(target).toHaveCount(0);
+
+  // Clicking its bubble in the Mappings pane must expand its ancestors,
+  // scroll it into view, and flash-highlight it.
+  await page.locator('.row .bubble', { hasText: '11111' }).first().click();
+  await expect(target).toBeVisible();
+  await expect(target).toHaveClass(/flash/);
+  await expect(target).not.toHaveClass(/flash/, { timeout: 3000 }); // the flash fades on its own
+
+  expect(errors, `browser errors:\n${errors.join('\n')}`).toEqual([]);
+});
+
+test('hovering a mapped code scrolls its Mappings-pane row into view', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
+
+  // A short viewport so ten single-code mapping rows genuinely overflow the
+  // Mappings pane and the first row can be scrolled out of view.
+  await page.setViewportSize({ width: 1400, height: 500 });
+
+  await page.goto('./');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+
+  const csvInput = page.locator('input[type=file][accept*="csv"]');
+  await csvInput.first().setInputFiles(A);
+  await page.getByLabel('Parent codes already included').check();
+  await page.getByRole('button', { name: 'Build hierarchy' }).click();
+  await csvInput.first().setInputFiles(B);
+  await page.getByLabel('Parent codes already included').check();
+  await page.getByRole('button', { name: 'Build hierarchy' }).click();
+
+  const panelA = page.locator('.panel[data-accent="A"]');
+  const panelB = page.locator('.panel[data-accent="B"]');
+  for (const b of await page.locator('.controls button', { hasText: 'Expand' }).all()) await b.click();
+
+  // Map every leaf on side A to a distinct leaf on side B, one pair per
+  // click, so each becomes its own mapping row (ten rows total).
+  const codesA = await panelA
+    .locator('.node:has(.twist.spacer)')
+    .evaluateAll((els) => els.map((e) => e.dataset.code));
+  const codesB = await panelB
+    .locator('.node:has(.twist.spacer)')
+    .evaluateAll((els) => els.map((e) => e.dataset.code));
+  for (let i = 0; i < Math.min(codesA.length, codesB.length); i++) {
+    await panelA.locator(`.node[data-code="${codesA[i]}"]`).click();
+    await panelB.locator(`.node[data-code="${codesB[i]}"]`).click();
+    await page.getByRole('button', { name: 'Link' }).click();
+  }
+  await expect(page.locator('.row')).toHaveCount(10);
+
+  const rows = page.locator('.rows');
+  await expect(async () => {
+    expect(await rows.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+  }).toPass();
+
+  // Scroll the mapping list all the way to the bottom, so the very first
+  // row (the mapping for codesA[0], created first) is off-screen.
+  await rows.evaluate((el) => (el.scrollTop = el.scrollHeight));
+  const firstRow = page.locator('.row').first();
+  await expect(firstRow).not.toBeInViewport();
+
+  // Hovering the root code (which touches every leaf beneath it, including
+  // codesA[0]) must highlight *and* scroll the first row back into view —
+  // previously only the highlight happened, leaving the row off-screen.
+  await panelA.locator('.node[data-code="11"]').hover();
+  await expect(firstRow).toBeInViewport();
 
   expect(errors, `browser errors:\n${errors.join('\n')}`).toEqual([]);
 });
@@ -832,7 +998,7 @@ test('marking several codes no-match at once creates a distinct row per code, no
   await expect(row11211.locator('.bubble')).toHaveCount(1);
 });
 
-test('the mapping arrow toggles between equal and approximately-equal, and it\'s exported', async ({ page }) => {
+test('the mapping relationship toggle switches between equal and approximately-equal, and it\'s exported', async ({ page }) => {
   await page.goto('./');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
@@ -848,9 +1014,9 @@ test('the mapping arrow toggles between equal and approximately-equal, and it\'s
   await page.locator('.node', { hasText: '01.11' }).first().click();
   await page.getByRole('button', { name: 'Link' }).click();
 
-  // A two-way arrow, not a plain right-arrow.
+  // An equals sign, not the old two-way arrow — pairs visually with "≈".
   const relBtn = page.locator('.row').first().locator('.rel');
-  await expect(relBtn).toHaveText('⇄');
+  await expect(relBtn).toHaveText('=');
 
   await relBtn.click();
   await expect(relBtn).toHaveText('≈');
@@ -866,7 +1032,75 @@ test('the mapping arrow toggles between equal and approximately-equal, and it\'s
 
   // Toggling back flips it to "equal" again.
   await relBtn.click();
-  await expect(relBtn).toHaveText('⇄');
+  await expect(relBtn).toHaveText('=');
+});
+
+test('the mapping bar\'s equal/approx switch sets the relationship a new mapping is created with', async ({ page }) => {
+  await page.goto('./');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+
+  const csvInput = page.locator('input[type=file][accept*="csv"]');
+  await csvInput.first().setInputFiles(A);
+  await page.getByRole('button', { name: 'Build hierarchy' }).click();
+  await csvInput.first().setInputFiles(B);
+  await page.getByRole('button', { name: 'Build hierarchy' }).click();
+  for (const b of await page.locator('.controls button', { hasText: 'Expand' }).all()) await b.click();
+
+  // "=" is selected by default.
+  const eqOpt = page.locator('.relswitch-opt', { hasText: '=' });
+  const approxOpt = page.locator('.relswitch-opt', { hasText: '≈' });
+  await expect(eqOpt).toHaveClass(/active/);
+  await expect(approxOpt).not.toHaveClass(/active/);
+
+  await approxOpt.click();
+  await expect(approxOpt).toHaveClass(/active/);
+  await expect(eqOpt).not.toHaveClass(/active/);
+
+  await page.locator('.node', { hasText: '11111' }).first().click();
+  await page.locator('.node', { hasText: '01.11' }).first().click();
+  await page.getByRole('button', { name: 'Link' }).click();
+
+  // The created mapping picked up "approximate" straight away, with no
+  // separate toggle click needed afterward.
+  const relBtn = page.locator('.row').first().locator('.rel');
+  await expect(relBtn).toHaveText('≈');
+});
+
+test('pressing L triggers Link, but not while typing in the search box or a note field', async ({ page }) => {
+  await page.goto('./');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+
+  const csvInput = page.locator('input[type=file][accept*="csv"]');
+  await csvInput.first().setInputFiles(A);
+  await page.getByRole('button', { name: 'Build hierarchy' }).click();
+  await csvInput.first().setInputFiles(B);
+  await page.getByRole('button', { name: 'Build hierarchy' }).click();
+  for (const b of await page.locator('.controls button', { hasText: 'Expand' }).all()) await b.click();
+
+  // Typing "l" into the search box must not fire Link — it's just a search
+  // letter — and must not even be possible since Link is disabled anyway
+  // (nothing selected yet).
+  const searchBox = page.locator('input[type=search]').first();
+  await searchBox.fill('l');
+  await expect(page.locator('.row')).toHaveCount(0);
+  await searchBox.fill('');
+
+  await page.locator('.node', { hasText: '11111' }).first().click();
+  await page.locator('.node', { hasText: '01.11' }).first().click();
+
+  // Typing "l" into the mapping note field must not fire Link either.
+  const noteInput = page.getByPlaceholder('Optional note (applied to this mapping)…');
+  await noteInput.fill('l');
+  await expect(page.locator('.row')).toHaveCount(0);
+  await noteInput.fill('');
+
+  // With both sides selected and focus outside any input, pressing "L"
+  // triggers Link exactly like clicking the button.
+  await noteInput.evaluate((el) => el.blur());
+  await page.keyboard.press('l');
+  await expect(page.locator('.row')).toHaveCount(1);
 });
 
 test('undo/redo buttons in the toolbar step through mapping changes', async ({ page }) => {
@@ -913,4 +1147,52 @@ test('undo/redo buttons in the toolbar step through mapping changes', async ({ p
   await page.getByRole('button', { name: /Mark 1 as no match/ }).click();
   await expect(page.locator('.row')).toHaveCount(1);
   await expect(redoBtn).toBeDisabled();
+});
+
+test('the help overlay opens from the toolbar and can be closed via the X button, Escape, or the backdrop', async ({ page }) => {
+  await page.goto('./');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+
+  const helpBtn = page.getByRole('button', { name: 'Help' });
+  const modal = page.locator('.help-modal');
+
+  await helpBtn.click();
+  await expect(modal).toBeVisible();
+  await expect(modal).toContainText('crosswalk', { ignoreCase: true });
+  await expect(modal).toContainText('Keyboard shortcuts', { ignoreCase: true });
+
+  await page.getByRole('button', { name: 'Close help' }).click();
+  await expect(modal).toHaveCount(0);
+
+  await helpBtn.click();
+  await expect(modal).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(modal).toHaveCount(0);
+
+  await helpBtn.click();
+  await expect(modal).toBeVisible();
+  await page.locator('.help-backdrop').click({ position: { x: 5, y: 5 } });
+  await expect(modal).toHaveCount(0);
+});
+
+test('the L shortcut does not fire while the help overlay is open', async ({ page }) => {
+  await page.goto('./');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+
+  const csvInput = page.locator('input[type=file][accept*="csv"]');
+  await csvInput.first().setInputFiles(A);
+  await page.getByRole('button', { name: 'Build hierarchy' }).click();
+  await csvInput.first().setInputFiles(B);
+  await page.getByRole('button', { name: 'Build hierarchy' }).click();
+  for (const b of await page.locator('.controls button', { hasText: 'Expand' }).all()) await b.click();
+
+  await page.locator('.node', { hasText: '11111' }).first().click();
+  await page.locator('.node', { hasText: '01.11' }).first().click();
+
+  await page.getByRole('button', { name: 'Help' }).click();
+  await expect(page.locator('.help-modal')).toBeVisible();
+  await page.keyboard.press('l');
+  await expect(page.locator('.row')).toHaveCount(0);
 });

@@ -18,6 +18,7 @@
     onClear,
     onHover,
     onSelectUnmapped,
+    focusRequest = null, // { code, ts } | null — passed through to TreePanel
   } = $props();
 
   // Local flow state: 'idle' -> 'mapping' once a file is parsed.
@@ -131,6 +132,7 @@
     {onClear}
     {onHover}
     {onSelectUnmapped}
+    {focusRequest}
     onChange={changeFile}
     onRename={(name) => (system = { ...system, name })}
   />

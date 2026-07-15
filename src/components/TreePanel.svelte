@@ -1,5 +1,5 @@
 <script>
-  import { untrack } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import { flattenTree, expandToLeaves, leafCodesOf, compactCodes } from '../lib/hierarchy.js';
   import editIcon from '@material-design-icons/svg/filled/edit.svg?raw';
 
@@ -15,7 +15,12 @@
     onRename, // called with a new dataset name (used in export filenames)
     onHover, // called with the hovered code, or null on leave — drives Mappings-pane highlight
     onSelectUnmapped, // called with an array of not-yet-mapped leaf codes under a node
+    focusRequest = null, // { code, ts } | null — reveal (expand/scroll/flash) a code, e.g. from a Mappings-pane bubble click
   } = $props();
+
+  let treeEl;
+  let flashedCode = $state(null);
+  let flashTimer;
 
   let query = $state('');
   let expanded = $state(new Set());
@@ -54,16 +59,49 @@
   // part of the search results. Instead, starting or refining a search
   // auto-reveals matches once, by expanding their ancestors; the user is then
   // free to collapse any of those sections without them springing back open.
+  //
+  // Two bits of bookkeeping make that work across keystrokes:
+  // - `userOwnedCodes`: codes the user has manually toggled since the current
+  //   search began. The effect below never adds or removes these, in either
+  //   direction, no matter what the query does next.
+  // - `searchAutoExpanded`: codes currently expanded purely because *this*
+  //   effect added them (not the user, not the default root-expand). When a
+  //   later keystroke narrows the query, sections in here that are no longer
+  //   needed get retracted again. Without this, a broad early keystroke
+  //   (e.g. a single common letter matching almost everything) would expand
+  //   huge parts of the tree and leave it that way forever, since additions
+  //   alone never shrink back down as the query is refined.
   // `untrack` keeps this effect from re-firing off its own writes to
-  // `expanded` (or the user's later manual toggles) — it only reacts to the
-  // query itself changing.
+  // `expanded` — it only reacts to the query itself changing.
+  let userOwnedCodes = new Set();
+  let searchAutoExpanded = new Set();
+
   $effect(() => {
-    if (!system || !normalizedQuery) return;
+    if (!system || !normalizedQuery) {
+      // Leaving a search (query cleared, or none started yet): put back
+      // whatever the search itself opened and the user hasn't claimed as
+      // their own, so a finished search doesn't leave the tree permanently
+      // more expanded than it was before — this is what previously made a
+      // search "leak" into a fully-exploded tree once the box was cleared.
+      if (searchAutoExpanded.size) {
+        const next = new Set(expanded);
+        let changed = false;
+        for (const a of searchAutoExpanded) {
+          if (!userOwnedCodes.has(a) && next.has(a)) {
+            next.delete(a);
+            changed = true;
+          }
+        }
+        if (changed) expanded = next;
+      }
+      userOwnedCodes = new Set();
+      searchAutoExpanded = new Set();
+      return;
+    }
     const q = normalizedQuery;
     const tree = system.tree;
     untrack(() => {
-      const next = new Set(expanded);
-      let changed = false;
+      const needed = new Set();
       const walk = (node, ancestors) => {
         let anyMatch =
           node.code.toLowerCase().includes(q) || node.title.toLowerCase().includes(q);
@@ -72,19 +110,83 @@
           if (walk(child, nextAncestors)) anyMatch = true;
         }
         if (anyMatch) {
-          for (const a of ancestors) {
-            if (!next.has(a)) {
-              next.add(a);
-              changed = true;
-            }
-          }
+          for (const a of ancestors) needed.add(a);
         }
         return anyMatch;
       };
       tree.roots.forEach((r) => walk(r, []));
+
+      const next = new Set(expanded);
+      let changed = false;
+
+      // Retract sections this search previously opened but no longer needs.
+      // Only codes *this effect* actually flipped open are tracked here —
+      // never a section that happened to already be open for some other
+      // reason (e.g. the default root-expand) — so this never collapses
+      // something search didn't itself cause.
+      for (const a of searchAutoExpanded) {
+        if (userOwnedCodes.has(a)) {
+          searchAutoExpanded.delete(a); // ownership already transferred to the user; stop tracking it here
+        } else if (!needed.has(a)) {
+          if (next.has(a)) {
+            next.delete(a);
+            changed = true;
+          }
+          searchAutoExpanded.delete(a);
+        }
+      }
+
+      // Add newly-needed ancestors that aren't already expanded by anything.
+      for (const a of needed) {
+        if (!userOwnedCodes.has(a) && !next.has(a)) {
+          next.add(a);
+          searchAutoExpanded.add(a); // remember search caused this, so it can be retracted later
+          changed = true;
+        }
+      }
+
       if (changed) expanded = next;
     });
   });
+
+  // Reveal a code requested from elsewhere (e.g. clicking a bubble in the
+  // Mappings pane): expand every ancestor so it's actually in the flattened
+  // row list, clear any active search filter that might otherwise hide it
+  // regardless of expand state, scroll it into view, then flash it briefly.
+  // `req` is a fresh object each time (see focusCode in stores.js), so the
+  // effect re-fires even when the same code is clicked twice in a row.
+  $effect(() => {
+    const req = focusRequest;
+    if (!req || !system) return;
+    const code = req.code;
+    untrack(() => {
+      revealCode(code);
+    });
+  });
+
+  async function revealCode(code) {
+    if (!system.tree.byCode.has(code)) return;
+    query = '';
+    const next = new Set(expanded);
+    let changed = false;
+    let parent = system.tree.byCode.get(code)?.parent;
+    while (parent) {
+      if (!next.has(parent)) {
+        next.add(parent);
+        changed = true;
+      }
+      parent = system.tree.byCode.get(parent)?.parent;
+    }
+    if (changed) expanded = next;
+    await tick();
+    const el = treeEl?.querySelector(`[data-code="${CSS.escape(code)}"]`);
+    el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    clearTimeout(flashTimer);
+    flashedCode = code;
+    flashTimer = setTimeout(() => {
+      flashedCode = null;
+    }, 1400);
+  }
 
   let rows = $derived(system ? flattenTree(system.tree, expanded, matcher) : []);
   let warnings = $derived(system?.tree.warnings ?? []);
@@ -163,17 +265,25 @@
     if (next.has(code)) next.delete(code);
     else next.add(code);
     expanded = next;
+    // A manual toggle takes permanent ownership of this section away from the
+    // search auto-expand effect, so a later keystroke can neither force it
+    // back open nor retract it out from under the user.
+    userOwnedCodes.add(code);
   }
 
   function expandAll() {
     if (!system) return;
     expanded = new Set(system.tree.nodes.filter((n) => (system.tree.childrenOf.get(n.code) ?? []).length).map((n) => n.code));
     allExpanded = true;
+    userOwnedCodes = new Set();
+    searchAutoExpanded = new Set();
   }
 
   function collapseAll() {
     expanded = new Set();
     allExpanded = false;
+    userOwnedCodes = new Set();
+    searchAutoExpanded = new Set();
   }
 
   function select(code, locked) {
@@ -329,7 +439,7 @@
     </details>
   {/if}
 
-  <div class="tree" role="tree" aria-label={system.name} aria-multiselectable="true">
+  <div class="tree" role="tree" aria-label={system.name} aria-multiselectable="true" bind:this={treeEl}>
     {#if rows.length === 0}
       <p class="empty">{#if query}No codes match “{query}”.{:else}No codes to show.{/if}</p>
     {/if}
@@ -340,11 +450,14 @@
       {@const isMapped = count > 0 || isNoMatch}
       {@const isLocked = !hasChildren && isMapped && !isSelected}
       {@const progress = nodeProgress.get(node.code) ?? { mapped: 0, total: 0 }}
+      {@const isFullyMapped = hasChildren ? progress.total > 0 && progress.mapped === progress.total : isMapped}
       <div
         class="node"
         class:selected={isSelected}
-        class:mapped={isMapped}
+        class:mapped={isFullyMapped}
         class:locked={isLocked}
+        class:flash={flashedCode === node.code}
+        data-code={node.code}
         role="treeitem"
         aria-selected={isSelected}
         aria-disabled={isLocked}
@@ -582,6 +695,20 @@
   }
   .node.locked:hover {
     background: none;
+  }
+  .node.flash {
+    animation: flash-highlight 1.4s ease-out;
+  }
+  @keyframes flash-highlight {
+    0%,
+    35% {
+      background: var(--accent-soft);
+      box-shadow: inset 3px 0 0 0 var(--accent);
+    }
+    100% {
+      background: transparent;
+      box-shadow: inset 3px 0 0 0 transparent;
+    }
   }
   .twist {
     border: none;

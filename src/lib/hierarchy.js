@@ -567,14 +567,50 @@ export function synthesizeMissingParents(rows, colMap) {
   for (const code of missing) rowByCode.set(code, { [codeCol]: code, [titleCol]: '' });
   for (const code of groupCodeOf.values()) rowByCode.set(code, { [codeCol]: code, [titleCol]: '' });
 
-  const allCodes = [...realCodes, ...missing, ...groupCodeOf.values()];
+  const allCodesPrePrune = [...realCodes, ...missing, ...groupCodeOf.values()];
   const childrenOf = new Map();
-  for (const code of allCodes) {
+  for (const code of allCodesPrePrune) {
     const parent = parentOf.get(code);
     if (parent === undefined) continue;
     if (!childrenOf.has(parent)) childrenOf.set(parent, []);
     childrenOf.get(parent).push(code);
   }
+
+  // Elide a blank-title placeholder that ends up wrapping only a single
+  // child — such a node adds an extra nesting level without helping the user
+  // navigate anything, so its lone child is reparented directly onto
+  // whatever the placeholder's own parent was. That parent may itself become
+  // newly single-child once the placeholder is gone, so this repeats to a
+  // fixed point (e.g. a dataset that only ever uses one code under "13.20",
+  // which itself is the only code under "13", elides both placeholders and
+  // reparents the leaf straight onto "13"'s own parent, or onto the root
+  // level if "13" had none). Real "(group)" nodes are never elided this
+  // way: a group node exists specifically because its own code collides
+  // with an ancestor rung another real code needs, so it always has at
+  // least two children (the colliding real code itself, plus whatever
+  // needed it) — see the two comments above `groupCodeOf`.
+  let prunedSomething = true;
+  while (prunedSomething) {
+    prunedSomething = false;
+    for (const code of [...missing]) {
+      const kids = childrenOf.get(code);
+      if (!kids || kids.length !== 1) continue;
+      const [onlyChild] = kids;
+      const grandparent = parentOf.get(code);
+      if (grandparent === undefined) parentOf.delete(onlyChild);
+      else {
+        parentOf.set(onlyChild, grandparent);
+        const siblings = childrenOf.get(grandparent) ?? [];
+        siblings.splice(siblings.indexOf(code), 1, onlyChild);
+      }
+      childrenOf.delete(code);
+      parentOf.delete(code);
+      missing.delete(code);
+      prunedSomething = true;
+    }
+  }
+
+  const allCodes = [...realCodes, ...missing, ...groupCodeOf.values()];
   // A synthesized code is only ever appended to `allCodes` after every real one,
   // so without sorting it would always land last among its siblings regardless of
   // its actual value (e.g. a synthesized "01" ancestor's siblings, or a

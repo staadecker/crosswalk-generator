@@ -1,6 +1,7 @@
 <script>
-  import { addGroup, markNoMatch, defaultGroupName } from '../lib/stores.js';
+  import { addGroup, markNoMatch, defaultGroupName, helpOpen } from '../lib/stores.js';
   import { expandToLeaves } from '../lib/hierarchy.js';
+  import { get } from 'svelte/store';
 
   let {
     systemA = null,
@@ -16,6 +17,7 @@
 
   let note = $state('');
   let flash = $state('');
+  let approx = $state(false); // relationship the *next* created mapping will get
 
   let labelA = $derived(systemA?.name || 'A');
   let labelB = $derived(systemB?.name || 'B');
@@ -47,7 +49,7 @@
     const aLeaves = expandToLeaves(systemA.tree, selectionA);
     const bLeaves = expandToLeaves(systemB.tree, selectionB);
     const name = defaultGroupName(systemA, aLeaves);
-    const { skippedA, skippedB } = addGroup([...aLeaves], [...bLeaves], name, note.trim());
+    const { skippedA, skippedB } = addGroup([...aLeaves], [...bLeaves], name, note.trim(), approx);
     note = '';
     onLinked?.(); // App clears both selections
     const keptA = aLeaves.size - skippedA.length;
@@ -57,6 +59,21 @@
       `Created a mapping linking ${keptA} × ${keptB} code(s).` +
         (skippedTotal ? ` (${skippedTotal} skipped — already mapped elsewhere)` : ''),
     );
+  }
+
+  // 'L' triggers the same action as clicking Link, so a keyboard-only flow
+  // doesn't need to reach for the mouse — but only when Link is actually the
+  // live action (both sides selected) and the keypress isn't really text
+  // being typed into the search box, a note field, or any other input.
+  function handleKeydown(e) {
+    if (e.key !== 'l' && e.key !== 'L') return;
+    if (e.altKey || e.ctrlKey || e.metaKey) return;
+    const tag = e.target?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target?.isContentEditable) return;
+    if (get(helpOpen)) return;
+    if (!canLink) return;
+    e.preventDefault();
+    link();
   }
 
   function noMatch() {
@@ -72,6 +89,8 @@
     say(`Marked ${added} code${added === 1 ? '' : 's'} as no match${skipped ? ` (${skipped} skipped — already mapped)` : ''}.`);
   }
 </script>
+
+<svelte:window onkeydown={handleKeydown} />
 
 <div class="bar">
   <div class="ends">
@@ -94,7 +113,32 @@
       {/if}
     </div>
 
-    <div class="mid" aria-hidden="true">→</div>
+    <div class="mid">
+      <div class="relswitch" role="radiogroup" aria-label="Relationship for the next mapping">
+        <button
+          type="button"
+          class="relswitch-opt"
+          class:active={!approx}
+          role="radio"
+          aria-checked={!approx}
+          title="Equal — the next mapping created will be an exact match"
+          onclick={() => (approx = false)}
+        >
+          =
+        </button>
+        <button
+          type="button"
+          class="relswitch-opt"
+          class:active={approx}
+          role="radio"
+          aria-checked={approx}
+          title="Approximately equal — the next mapping created will be an approximate match"
+          onclick={() => (approx = true)}
+        >
+          ≈
+        </button>
+      </div>
+    </div>
 
     <div class="end" data-accent="B">
       <div class="end-head">
@@ -130,7 +174,7 @@
         Mark {noMatchSide === 'A' ? nA : nB} as no match
       </button>
     {:else}
-      <button class="primary" disabled={!canLink} onclick={link}>
+      <button class="primary" disabled={!canLink} onclick={link} title="Link (shortcut: L)">
         Link
       </button>
     {/if}
@@ -240,8 +284,31 @@
     display: flex;
     align-items: center;
     justify-content: center;
+  }
+  .relswitch {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+  }
+  .relswitch-opt {
+    border: none;
+    border-radius: 0;
+    background: var(--surface-2);
     color: var(--text-muted);
-    font-size: 16px;
+    font-size: 15px;
+    line-height: 1;
+    padding: 6px 8px;
+    cursor: pointer;
+  }
+  .relswitch-opt + .relswitch-opt {
+    border-top: 1px solid var(--border);
+  }
+  .relswitch-opt.active {
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-weight: 700;
   }
   .linkrow {
     display: flex;
