@@ -23,7 +23,10 @@ https://svelte.dev/llms-small.txt for a condensed reference if unsure.
 
 - `README.md` — the project pitch and how to run/build/deploy it. Keep it
   high-level; it does not need to enumerate every feature or behavioral
-  detail.
+  detail. Agent edits to this file are blocked at the tool-permission level
+  (`.claude/settings.json` denies `Edit(README.md)`/`Write(README.md)`) — if
+  README.md genuinely needs a change, tell the user what to update and let
+  them make the edit themselves rather than trying to work around the block.
 - `SPEC.md` — the actual specification: data model, hierarchy-building
   algorithm, mapping/undo-redo invariants, export row/column shapes, and
   expected UI behavior, written for an LLM (or contributor) that needs to
