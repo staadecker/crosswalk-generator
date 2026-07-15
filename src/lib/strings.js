@@ -48,9 +48,14 @@ export const toolbar = {
   closeHelpAriaLabel: 'Close help',
   helpBodyHtml: `
         <p>
-          Hierarchical classification systems are widely used to organize books,
-          define industries, and classify patents, among other things. When two
-          conflicting systems need to be used a <strong>crosswalk</strong> (also called a concordance
+          Hierarchical classification systems are widely used to, for example,
+          <a href="https://en.wikipedia.org/wiki/Library_of_Congress_Classification" target="_blank" rel="noopener">organize</a>
+          <a href="https://en.wikipedia.org/wiki/Dewey_Decimal_Classification" target="_blank" rel="noopener">books</a>,
+          <a href="https://en.wikipedia.org/wiki/North_American_Industry_Classification_System" target="_blank" rel="noopener">define</a>
+          <a href="https://en.wikipedia.org/wiki/Statistical_Classification_of_Economic_Activities_in_the_European_Community" target="_blank" rel="noopener">industries</a>,
+          and <a href="https://en.wikipedia.org/wiki/International_Patent_Classification" target="_blank" rel="noopener">classify</a>
+          <a href="https://en.wikipedia.org/wiki/Cooperative_Patent_Classification" target="_blank" rel="noopener">patents</a>.
+          When two conflicting systems need to be used a <strong>crosswalk</strong> (also called a concordance
           table) maps codes from one to the other so data can move between them.
         </p>
         <p>

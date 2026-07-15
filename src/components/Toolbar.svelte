@@ -16,6 +16,7 @@
   import undoIcon from '@material-design-icons/svg/filled/undo.svg?raw';
   import redoIcon from '@material-design-icons/svg/filled/redo.svg?raw';
   import helpIcon from '@material-design-icons/svg/filled/help_outline.svg?raw';
+  import logoIcon from '@material-design-icons/svg/filled/sync_alt.svg?raw';
   import { buildCrosswalkRows, crosswalkToCsv, downloadFile, readFileText } from '../lib/crosswalk.js';
   import { toolbar as strings } from '../lib/strings.js';
 
@@ -122,7 +123,7 @@
 
 <div class="toolbar">
   <div class="brand">
-    <span class="logo" aria-hidden="true">⇄</span>
+    <span class="logo" aria-hidden="true">{@html logoIcon}</span>
     <div>
       <div class="name">{strings.brandName}</div>
       <div class="sub">{strings.tagline}</div>
@@ -242,7 +243,6 @@
     gap: 10px;
   }
   .logo {
-    font-size: 22px;
     color: var(--accent);
     background: var(--accent-soft);
     width: 36px;
@@ -250,6 +250,11 @@
     display: grid;
     place-items: center;
     border-radius: 8px;
+  }
+  .logo :global(svg) {
+    width: 22px;
+    height: 22px;
+    fill: currentColor;
   }
   .name {
     font-weight: 700;

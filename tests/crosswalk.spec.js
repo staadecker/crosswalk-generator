@@ -1440,6 +1440,10 @@ test('the help overlay opens from the toolbar and can be closed via the X button
   await expect(modal).toBeVisible();
   await expect(modal).toContainText('crosswalk', { ignoreCase: true });
   await expect(modal).toContainText('Keyboard shortcuts', { ignoreCase: true });
+  await expect(modal.locator('a[href="https://en.wikipedia.org/wiki/Dewey_Decimal_Classification"]')).toBeVisible();
+  await expect(
+    modal.locator('a[href="https://en.wikipedia.org/wiki/Cooperative_Patent_Classification"]')
+  ).toBeVisible();
 
   await page.getByRole('button', { name: 'Close help' }).click();
   await expect(modal).toHaveCount(0);
@@ -1453,6 +1457,12 @@ test('the help overlay opens from the toolbar and can be closed via the X button
   await expect(modal).toBeVisible();
   await page.locator('.help-backdrop').click({ position: { x: 5, y: 5 } });
   await expect(modal).toHaveCount(0);
+});
+
+test('the page declares a favicon and the toolbar brand renders an SVG logo, not a text glyph', async ({ page }) => {
+  await page.goto('./');
+  await expect(page.locator('link[rel="icon"]')).toHaveCount(1);
+  await expect(page.locator('.logo svg')).toBeVisible();
 });
 
 test('exporting requires agreeing to a citation prompt before the download happens', async ({ page }) => {
