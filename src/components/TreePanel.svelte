@@ -543,10 +543,11 @@
   }
   .side-label {
     font-size: 10px;
+    line-height: 1;
     text-transform: uppercase;
     letter-spacing: 0.04em;
     color: var(--text-muted);
-    margin-bottom: 2px;
+    margin-bottom: 0;
   }
   .titlerow {
     display: flex;
@@ -564,7 +565,7 @@
     min-width: 0;
     font-size: 14px;
     font-weight: 700;
-    padding: 3px 2px;
+    padding: 1px 2px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;

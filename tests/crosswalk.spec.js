@@ -246,41 +246,41 @@ test('the demo-data banner loads a demo pair into both panels in one click, and 
   await expect(banner).toHaveCount(0);
 });
 
-test('the demo-data banner can be dismissed manually with its own "X" button', async ({ page }) => {
+test('the demo-data banner has no dismiss button and reappears once both systems go back to empty', async ({ page }) => {
   await page.goto('./');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
 
   const banner = page.locator('.demo-banner');
   await expect(banner).toBeVisible();
-  await page.locator('.demo-banner .demo-dismiss').click();
-  await expect(banner).toHaveCount(0);
-
-  // Dismissing it doesn't load anything — both panels are still at the
-  // upload step.
-  await expect(page.locator('input[type=file][accept*="csv"]')).toHaveCount(2);
-});
-
-test('Restart brings the demo-data banner back, even if it was already dismissed once this session', async ({ page }) => {
-  await page.goto('./');
-  await page.evaluate(() => localStorage.clear());
-  await page.reload();
-
-  const banner = page.locator('.demo-banner');
-  await expect(banner).toBeVisible();
-  await page.locator('.demo-banner .demo-dismiss').click();
-  await expect(banner).toHaveCount(0);
+  await expect(page.locator('.demo-banner .demo-dismiss')).toHaveCount(0);
 
   const csvInput = page.locator('input[type=file][accept*="csv"]');
   await csvInput.first().setInputFiles(A);
   await page.getByLabel('Data includes parent codes').check();
   await page.getByRole('button', { name: 'Build hierarchy' }).click();
-  await expect(banner).toHaveCount(0); // still gone: the banner's own dismiss flag, plus data now loaded
+  await expect(banner).toHaveCount(0); // gone as soon as one side has data
 
-  // Regression: the dismissed flag used to be permanent local state, so once
-  // dismissed it never came back for the rest of the session — even after
-  // Restart cleared both systems back to empty, which is exactly when the
-  // banner should be offered again.
+  // Regression: the banner used to stay gone for the rest of the session once
+  // dismissed/loaded once, via a permanent "dismissed" flag. Now there is no
+  // such flag — the banner is purely "neither system has data yet", so it
+  // must come back as soon as that becomes true again, e.g. after Replace
+  // file clears system A back to the upload step (system B was never loaded).
+  await page.locator('.panel[data-accent="A"] .danger.small', { hasText: 'Replace file…' }).click();
+  await expect(banner).toBeVisible();
+});
+
+test('Restart brings the demo-data banner back', async ({ page }) => {
+  await page.goto('./');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+
+  const banner = page.locator('.demo-banner');
+  await expect(banner).toBeVisible();
+
+  await page.getByRole('button', { name: 'Try our demo data' }).click();
+  await expect(banner).toHaveCount(0);
+
   page.once('dialog', (d) => d.accept());
   await page.getByRole('button', { name: 'Restart' }).click();
   await expect(banner).toBeVisible();
@@ -403,6 +403,62 @@ test('auto-detect level builds a hierarchy without picking a level column', asyn
   await expect(page.locator('.node')).toHaveCount(26); // still all 26 rows kept
 
   expect(errors, `browser errors:\n${errors.join('\n')}`).toEqual([]);
+});
+
+test('the column-mapping step groups fields into "Select columns"/"Configure nesting", disables the level column until parent codes are confirmed included, and keeps its hint text static', async ({ page }) => {
+  await page.goto('./');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+
+  const csvInput = page.locator('input[type=file][accept*="csv"]');
+  await csvInput.first().setInputFiles(A);
+
+  await expect(page.getByRole('heading', { name: 'Select columns' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Configure nesting' })).toBeVisible();
+
+  const parentCheckbox = page.getByLabel('Data includes parent codes');
+  const levelSelect = page.getByLabel('Level column');
+  const hint = page.locator('.mapper .hint');
+  const hintText = await hint.textContent();
+
+  // The level column can't do anything useful without an explicit row for
+  // every ancestor level already in the file, so it stays disabled (and on
+  // "Auto-detect") until the user confirms the file has that.
+  await expect(parentCheckbox).not.toBeChecked();
+  await expect(levelSelect).toBeDisabled();
+  await expect(levelSelect).toHaveValue('');
+
+  await parentCheckbox.check();
+  await expect(levelSelect).toBeEnabled();
+
+  // Regression: this hint used to swap to a different message depending on
+  // the checkbox state, which read as the UI changing its mind mid-explanation.
+  await expect(hint).toHaveText(hintText);
+
+  // Unchecking disables the select again and resets it back to auto-detect,
+  // since an explicit level column is no longer a valid choice.
+  await levelSelect.selectOption({ index: 1 });
+  await parentCheckbox.uncheck();
+  await expect(levelSelect).toBeDisabled();
+  await expect(levelSelect).toHaveValue('');
+  await expect(hint).toHaveText(hintText);
+});
+
+test('column-mapping "?" hints use the fast custom tooltip, not the slow native title', async ({ page }) => {
+  await page.goto('./');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+
+  const csvInput = page.locator('input[type=file][accept*="csv"]');
+  await csvInput.first().setInputFiles(A);
+
+  const codeHelp = page.locator('.mapper label', { hasText: 'Code column' }).locator('.help');
+  await expect(codeHelp).toHaveCount(1);
+  await expect(codeHelp).not.toHaveAttribute('title');
+
+  await codeHelp.hover();
+  await expect(page.locator('.fast-tooltip')).toBeVisible();
+  await expect(page.locator('.fast-tooltip')).toContainText('unique identifier');
 });
 
 test('auto-generate parent codes disambiguates a code that collides with an implied ancestor', async ({ page }) => {

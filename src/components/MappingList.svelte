@@ -12,6 +12,7 @@
     focusCode,
   } from '../lib/stores.js';
   import { compactCodes, expandToLeaves } from '../lib/hierarchy.js';
+  import { fastTooltip } from '../lib/tooltip.js';
   import noteIcon from '@material-design-icons/svg/filled/sticky_note_2.svg?raw';
 
   let {
@@ -55,34 +56,6 @@
     node.select?.();
   }
 
-  // A fast-appearing replacement for the native `title` tooltip (which has a
-  // long, browser-controlled show delay) — used on bubble codes so a user can
-  // check a code's title without waiting.
-  let tooltip = $state(null); // { text, x, y } | null
-  function fastTooltip(node, getText) {
-    let timer;
-    function show() {
-      const text = typeof getText === 'function' ? getText() : getText;
-      if (!text) return;
-      const rect = node.getBoundingClientRect();
-      timer = setTimeout(() => {
-        tooltip = { text, x: rect.left + rect.width / 2, y: rect.top };
-      }, 150);
-    }
-    function hide() {
-      clearTimeout(timer);
-      tooltip = null;
-    }
-    node.addEventListener('mouseenter', show);
-    node.addEventListener('mouseleave', hide);
-    return {
-      destroy() {
-        clearTimeout(timer);
-        node.removeEventListener('mouseenter', show);
-        node.removeEventListener('mouseleave', hide);
-      },
-    };
-  }
 
   let aByCode = $derived(systemA?.tree.byCode ?? new Map());
   let bByCode = $derived(systemB?.tree.byCode ?? new Map());
@@ -341,10 +314,6 @@
   </div>
 </div>
 
-{#if tooltip}
-  <div class="fast-tooltip" style="left: {tooltip.x}px; top: {tooltip.y}px">{tooltip.text}</div>
-{/if}
-
 <style>
   .list {
     display: flex;
@@ -568,19 +537,5 @@
   .note-input:focus {
     background: var(--surface);
     border-color: var(--border);
-  }
-  .fast-tooltip {
-    position: fixed;
-    z-index: 1000;
-    transform: translate(-50%, calc(-100% - 6px));
-    background: var(--text);
-    color: var(--surface);
-    font-size: 11px;
-    line-height: 1.4;
-    padding: 4px 8px;
-    border-radius: var(--radius-sm);
-    box-shadow: var(--shadow);
-    max-width: 280px;
-    pointer-events: none;
   }
 </style>

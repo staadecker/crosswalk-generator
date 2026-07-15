@@ -79,6 +79,9 @@ https://svelte.dev/llms-small.txt for a condensed reference if unsure.
   `downloadFile`/`downloadBlob` for triggering browser downloads.
 - `src/lib/zip.js` — dependency-free ZIP archive writer (STORE/uncompressed
   method) used to bundle the three exported CSVs into one `.zip` download.
+- `src/lib/tooltip.js` — the shared `fastTooltip` action + `tooltipState`
+  store behind the app's fast-appearing hover tooltip; rendered by the single
+  `<FastTooltip/>` mounted in `App.svelte`.
 - `src/components/` — UI: file upload → column mapping → tree panel per
   system (with progress bar, sample-data shortcuts, grey-out of mapped
   entries, an editable dataset name used in export filenames), the mapping
@@ -157,8 +160,11 @@ npm test              # logic tests + Playwright e2e
   the pattern. Plain-text glyphs (e.g. "✕" for remove/close) are unaffected —
   this convention is specifically for edit/action icons that read poorly as a
   single character.
-- The Mappings pane's code bubbles use a custom fast-appearing tooltip
-  (`fastTooltip` action in `MappingList.svelte`, ~150ms delay) instead of the
+- Hoverable code chips/hints use a custom fast-appearing tooltip (`fastTooltip`
+  action + `tooltipState` store in `src/lib/tooltip.js`, rendered by a single
+  `<FastTooltip/>` mounted in `App.svelte`, ~150ms delay) instead of the
   native `title` attribute, since the browser's own hover-tooltip delay is too
-  slow for quickly scanning many codes. Reuse that action (don't add a native
-  `title` back) if you add more hoverable code chips elsewhere.
+  slow for quickly scanning many codes or reading a field hint. Reuse
+  `fastTooltip` (don't add a native `title` back, and don't reimplement a
+  local copy) if you add more hoverable elements elsewhere — see its use in
+  `MappingList.svelte` (code bubbles) and `ColumnMapper.svelte` ("?" hints).

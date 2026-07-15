@@ -115,13 +115,6 @@ export const focusB = writable(null);
 // fire invisibly behind the overlay while the user is reading it.
 export const helpOpen = writable(false);
 
-// Whether the "try our demo data" banner has been dismissed (manually, or by
-// loading data on either side). Lives here rather than as local App.svelte
-// state so clearAll() (Restart) can reset it — otherwise a banner dismissed
-// earlier in the session would never come back even after Restart empties
-// both systems again.
-export const demoBannerDismissed = writable(false);
-
 /** Request that a tree panel reveal (expand/scroll/flash) the given code. */
 export function focusCode(side, code) {
   (side === 'A' ? focusA : focusB).set({ code, ts: Date.now() });
@@ -448,7 +441,6 @@ export function clearAll() {
   hoverA.set(null);
   hoverB.set(null);
   resetMappingsHistory();
-  demoBannerDismissed.set(false);
 }
 
 // ---------------------------------------------------------------------------

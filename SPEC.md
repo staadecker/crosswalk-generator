@@ -1,484 +1,499 @@
 # Specification
 
-This document describes how the Crosswalk Generator app should (and should
-not) behave: what a user can do, what the app does in response, and what
-must remain true no matter what sequence of actions gets there. It is
-written in terms of behavior and outcomes, not code — variable names,
-function names, and internal data shapes are deliberately left out of the
-main text, except in a short "Where this lives" pointer at the end of each
-section, which names the source file(s) responsible so an implementer can
-find the code without the description itself becoming implementation
-detail. Skip those pointers if you only care about intended behavior.
+Requirements for the Crosswalk Generator: what the user can do, what the app
+must do in response, and what must hold regardless of the path taken to get
+there. Written in terms of behavior, not code. Each section ends with a
+*Where this lives* pointer naming the responsible source file(s); skip those
+if you only care about behavior.
 
-See `README.md` for the project pitch and how to run/build/deploy the app,
-and `CLAUDE.md` for contributor/agent workflow conventions. Update this file
-whenever you change a behavior it describes — a stale spec is an incomplete
-change.
+- See `README.md` for the pitch and run/build/deploy steps.
+- See `CLAUDE.md` for contributor/agent workflow conventions.
+- Update this file whenever you change a behavior it describes. Treat a stale
+  spec as an incomplete change.
 
 ## Core concepts
 
-- **System**: one of the two classification systems being mapped (called A
-  and B). A system is either "not loaded yet" or fully loaded with a name,
-  a hierarchy, and (once the app has run for a while) some mapped codes.
-  There is no inherent direction between A and B — either can be the
-  "source" or "target" depending how the user thinks about it, and nothing
-  in the app should assume one is primary.
-- **Code**: one row of a system — an identifier, a short title, an optional
-  longer description, and a position in that system's hierarchy.
-- **Hierarchy**: the tree of codes for one system. Every code has zero or
-  more children. A code with no children is a **leaf**; a code with
-  children is an **ancestor** (of everything beneath it) and a **parent**
-  (of its immediate children).
-- **Leaf code vs. ancestor code**: only leaf codes are ever meaningful in an
-  exported crosswalk. Ancestor codes exist purely as a navigation and
-  bulk-selection convenience — a user can pick an ancestor to mean "all its
-  leaves," but the app must always resolve that down to actual leaves
-  before recording or exporting a mapping, and must always be able to
-  redisplay a full set of leaves as a compact ancestor code again when
-  every leaf under that ancestor happens to be selected.
-- **Mapping group**: a single named link between some leaf codes on system A
-  and some leaf codes on system B — the many-to-many unit the whole app
-  exists to build. A group has a name, an optional free-text note, an
-  "equal" vs. "approximately equal" relationship flag, and two lists of
-  leaf codes (its A-side codes and its B-side codes).
-- **No-match**: a group with codes on only one side, meaning "this code was
-  checked and found to have no counterpart in the other system," as
-  distinct from "not yet reviewed." No-match is a real, recorded assertion,
-  but not a mapping.
+- **System** — one of the two classification systems being mapped (A and B).
+  - Is either "not loaded" or fully loaded with a name, a hierarchy, and
+    (eventually) some mapped codes.
+  - A and B have no inherent direction. Either can be "source" or "target";
+    nothing may assume one is primary.
+- **Code** — one row of a system: an identifier, a short title, an optional
+  longer description, and a position in the hierarchy.
+- **Hierarchy** — the tree of codes for one system.
+  - **Leaf** — a code with no children.
+  - **Ancestor** — a code with descendants beneath it.
+  - **Parent** — an ancestor of its immediate children.
+- **Leaf vs. ancestor code**
+  - Only leaf codes are meaningful in an exported crosswalk.
+  - Ancestor codes exist purely for navigation and bulk selection: picking an
+    ancestor means "all its leaves."
+  - The app must always resolve an ancestor down to actual leaves before
+    recording or exporting, and must always be able to redisplay a full leaf
+    set as a compact ancestor code when every leaf under that ancestor is
+    present.
+- **Mapping group** — the many-to-many unit the app exists to build: one
+  named link between some A-side leaf codes and some B-side leaf codes.
+  - Has: a name, an optional free-text note, an "equal" vs. "approximately
+    equal" flag, an A-side leaf-code list, and a B-side leaf-code list.
+- **No-match** — a group with codes on only one side, asserting "checked, has
+  no counterpart in the other system" — distinct from "not yet reviewed." A
+  real recorded assertion, but not a mapping.
 
 ## Uploading and preparing a system
 
-A user provides each system by uploading a CSV file and going through column
-mapping (below). Separately, before either side has any data yet, a
-dismissible banner near the top offers a one-click "Try our demo data" link
-that loads a bundled demo pair — one classification into system A, another
-into system B — straight into a built hierarchy on both sides at once, with
-no column-mapping step and no per-side dataset choice, so trying the app
-never requires understanding CSV column semantics up front. The banner
-disappears once dismissed via its own "X", or automatically as soon as
-either side has data loaded (by upload or by the demo link) — whichever
-happens first. "Restart" (see Global actions below) resets this dismissed
-state along with everything else it clears, so the banner comes back once
-both systems are empty again rather than staying gone for the rest of the
-session just because it was dismissed once before.
+- The user provides each system by uploading a CSV and completing column
+  mapping (below).
+- **Demo-data banner**
+  - Appears near the top whenever neither side has data.
+  - Offers a one-click "Try our demo data" link that loads a bundled demo
+    pair (one classification into A, one into B) into a built hierarchy on
+    both sides at once — no column-mapping step, no per-side choice.
+  - Has no dismiss control; visibility is purely a function of whether either
+    side has data.
+    - Disappears the instant one side gets data (upload or demo link).
+    - Reappears any time both systems return to empty — including after
+      "Replace file…" clears the last loaded side, or after "Restart".
 
-**Required and optional columns.** Every CSV must have a code column and a
-title column. It may optionally have a description column (shown only as a
-hover tooltip, never as a primary label) and either an explicit level column
-or no level column at all (see auto-detection below). The app should guess
-which uploaded column plays which role and let the user confirm or override
-every guess before building the hierarchy; the guess should never block
-upload, only pre-fill a choice. Every field in the column-mapping step has a
-small "?" hover icon next to it giving a short explanation of what that
-field/choice means, since a first-time user shouldn't need to already
-understand the data model to get through upload.
+### Required and optional columns
 
-The column-mapping fields appear in this order: code column, title column,
-description column, then level column — level comes last since it's the one
-most users leave on its default.
+- Every CSV must have a code column and a title column.
+- A CSV may optionally have:
+  - a description column (shown only as a hover tooltip, never a primary
+    label), and
+  - either an explicit level column or none (see auto-detection).
+- Guessing:
+  - The app should guess which uploaded column plays which role, pre-filling a
+    choice the user can confirm or override before building.
+  - A guess must only pre-fill; it must never block upload.
+- Every field has a small "?" hover hint giving a short explanation, so a
+  first-time user need not understand the data model to get through upload.
 
-The level column is the one exception to "guess pre-fills a choice": it is
-always presented as a single dropdown that starts on "Auto-detect from code
-structure" regardless of whatever column the guesser thinks looks
-level-shaped, since auto-detect is the recommended default and shouldn't be
-silently overridden by an unconfirmed guess — the user must deliberately pick
-a field from the dropdown to switch to an explicit level column. Whenever the
-dropdown is left on auto-detect, a "Data includes parent codes" checkbox
-(unchecked by default, i.e. auto-generate — see auto-detect parent handling
-below) appears below it, since that choice only matters for auto-detected
-hierarchies. Unlike the other fields, its explanation of what happens when
-left unchecked (ancestor codes get auto-generated) is shown as plain,
-always-visible text next to the checkbox, not only behind the "?" hover icon —
-that specific behavior is consequential enough (it changes the shape of the
-resulting tree) to not be hidden behind a hover.
+### Column-mapping layout
 
-- The code column is guessed as the column whose values are short and
-  highly unique across the file, favoring a column literally named
-  something like "code" or naming a known classification system.
-- The title column is guessed as whichever remaining column is clearly a
-  short label by name (e.g. "title", "name", "label"); only if no column
-  name looks label-like should the guess fall back to "the longest
-  remaining text column."
-- The description column, if any, is guessed as the longest remaining text
-  column, but only once it is at least plausibly long-form (a short,
-  unrelated column should never be guessed as a description merely for
-  being the only thing left).
-- Title and description guesses must be resolved together, not
-  independently: a file with both a short title-ish column and a long
-  description-ish column must not have the longer column mistaken for the
-  title just because it has more text in it.
+- Fields are grouped into two labeled sections, in this order:
+  1. **Select columns** — code column, title column, description column.
+  2. **Configure nesting** — the "Data includes parent codes" checkbox, then
+     the level column.
+- Nesting comes last since most users leave it on its defaults.
 
-**Row order.** A file's rows must be in top-down order — a parent row
-appears before its children. The app is not required to validate or repair
-misordered input; behavior on out-of-order rows is undefined and is the
-user's responsibility to fix upstream.
+### Level dropdown and parent-codes checkbox
 
-**Explicit level column.** If the user picks a level column, its values are
-integers giving each row's hierarchy depth. Levels do not need to start at 1
-or be sequential — a file using only 1, 2, 4 is fine — because a row's
-parent is defined as "the nearest earlier row with a smaller level," not by
-any fixed numeric relationship between levels. A row with a missing or
-non-numeric level, a missing code, or a code that duplicates an
-already-seen code should be skipped with a warning shown to the user, never
-silently dropped without explanation and never allowed to crash the import.
-If a file produces no root-level rows at all, that should also surface as a
-warning (it usually means the wrong column was picked).
+- **Level dropdown** — the one exception to "guess pre-fills a choice."
+  - Always starts on "Auto-detect from code structure," regardless of what the
+    guesser thinks looks level-shaped.
+  - The user must deliberately pick a field to switch to an explicit level
+    column.
+  - Enabled only while the "Data includes parent codes" checkbox above it is
+    checked; force-reset back to auto-detect the moment that checkbox is
+    unchecked.
+    - Rationale: an explicit level column only makes sense when every ancestor
+      level already has its own row (see "Explicit level column"), which is
+      exactly what the checkbox asserts. Auto-generating missing parents is
+      supported only for auto-detected levels.
+- **"Data includes parent codes" checkbox**
+  - Unchecked by default (i.e. auto-generate — see auto-detect parent
+    handling).
+  - Always visible, not only while the level dropdown is on auto-detect.
+  - Its explanation is plain, static text next to the checkbox, not only
+    behind the "?" hint, and does not change with the checkbox's state — the
+    behavior it describes changes the shape of the resulting tree, so it
+    deserves a stable, always-visible explanation rather than a hover-only one
+    that shifts as the user toggles the box.
+- **"?" hints** — every field's hint (including the level dropdown's and the
+  parent-codes checkbox's) uses the same fast-appearing custom tooltip as the
+  mapping list's code chips (see "Editing an existing mapping"), not the
+  native `title` attribute, so a first-time user isn't stuck waiting out the
+  browser's slow default hover delay.
 
-**Auto-detected level.** If the user does not pick a level column, hierarchy
-depth is inferred purely from each code's own shape, supporting (without
-requiring the user to declare which convention a file uses):
+### Column-guessing heuristics
 
-- Dot-separated codes (e.g. `01` → `01.1` → `01.11`), where depth increases
-  with the number of dot-separated segments.
-- Length-based codes (e.g. `11` → `111` → `1111`), where depth increases
-  with how many digits a code has, including a NAICS-style hyphenated
-  sector-range code such as `48-49` — which must be treated as sitting at
-  the same depth as plain two-digit sector codes like `11`/`21`, not as a
-  deeper code just because its written form is longer.
-- Mixed conventions within one file, e.g. a top level with no dots and a
-  fixed width (like single-letter section codes) followed by a
-  dot-separated or differently-sized level beneath it.
+- **Code** — the column whose values are short and highly unique across the
+  file, favoring a column literally named like "code" or a known
+  classification system.
+- **Title** — whichever remaining column is clearly a short label by name
+  (e.g. "title", "name", "label").
+  - Only if no column name looks label-like should it fall back to "the
+    longest remaining text column."
+- **Description** — the longest remaining text column, but only once it is at
+  least plausibly long-form. A short, unrelated column must never be guessed
+  as description merely for being the only thing left.
+- **Title and description must be resolved together, not independently.** A
+  file with both a short title-ish column and a long description-ish column
+  must not have the longer column mistaken for the title.
 
-Once a rough depth is assigned this way, every dot-separated code's parent
-should additionally be corrected to the nearest *existing* code reachable by
-trimming its own trailing segment(s) — because two codes can share the same
-"shape" yet actually belong at different real depths (e.g. a code like
-`01.11` must nest under an existing `01.1` if one exists, not become a
-sibling of `01`), while other codes sharing a shape may still be correctly
-siblings despite a visually different trailing segment (e.g. `13.1` and
-`13.20` can both be direct children of `13`). Codes with no dots are not
-subject to this correction, since there is no literal substring relationship
-to use as evidence for a better parent than the shape-based guess already
-produced.
+### Row order
 
-**Auto-detect parent handling.** When using auto-detected levels, the user
-picks one of two modes:
+- A file's rows must be in top-down order — a parent row precedes its
+  children.
+- The app need not validate or repair misordered input; behavior on
+  out-of-order rows is undefined and is the user's responsibility to fix
+  upstream.
 
-1. *Parent codes already included* — the file already has an explicit row
-   for every ancestor level; each code simply nests under its own matching
-   ancestor row, and any code with no matching ancestor becomes a root.
-2. *Auto-generate parent codes* — every provided code is treated purely as a
-   leaf/child, never assumed to double as another code's structural parent.
-   Any ancestor implied by a code's shape that is missing from the file
-   entirely gets a blank-title placeholder row synthesized for it (e.g.
-   producing a `01` row when only `01.a` and `01.b` are present). If the
-   implied ancestor instead coincides with a code that *is* present in the
-   file (e.g. both `20` and `20.w` are provided — `20` is `20.w`'s natural
-   parent, but `20` is also its own real code that needs a place in the
-   tree), the real code must not be silently repurposed as a structural
-   parent; instead a new blank-title placeholder such as `20 (group)`
-   should be synthesized as the shared parent, with both the real code and
-   whatever needed it as an ancestor nested underneath it as siblings. This
-   must chain correctly for deeper collisions (a colliding code whose own
-   natural parent is itself a colliding real code gets its own placeholder
-   the same way), and a placeholder name that itself happens to collide with
-   an existing code must be disambiguated (e.g. `20 (group 2)`) rather than
-   silently merging two unrelated nodes. Every synthesized or reparented
-   code must still end up in a stable, sensible sort position among its
-   siblings (natural/numeric order), not just appended after real codes.
-   Finally, a blank-title placeholder that would end up wrapping only a
-   single child (real or itself another placeholder) is elided rather than
-   created: that child is reparented directly onto the placeholder's own
-   parent instead, cascading up the chain if that in turn leaves *that*
-   ancestor with only one child too. A placeholder with two or more children
-   is a real grouping and is always kept — only single-child wrappers add no
-   navigational value and are skipped. (`20 (group)`-style collision
-   placeholders are never subject to this elision: a collision placeholder
-   exists specifically because its own code is needed by another real code
-   too, so it always has at least two children by construction.)
+### Explicit level column
 
-The bundled demo datasets already include an explicit row for every
-ancestor level, so they use mode 1.
+- Values are integers giving each row's hierarchy depth.
+- Levels need not start at 1 or be sequential (e.g. 1, 2, 4 is fine): a row's
+  parent is "the nearest earlier row with a smaller level," not a fixed
+  numeric relationship.
+- Skip a row with a warning (never silently, never crashing) when it has:
+  - a missing or non-numeric level,
+  - a missing code, or
+  - a code duplicating an already-seen code.
+- If a file produces no root-level rows, surface that as a warning (usually
+  means the wrong column was picked).
+
+### Auto-detected level
+
+- When no level column is picked, depth is inferred purely from each code's
+  shape, supporting (without the user declaring the convention):
+  - **Dot-separated** codes (e.g. `01` → `01.1` → `01.11`): depth increases
+    with segment count.
+  - **Length-based** codes (e.g. `11` → `111` → `1111`): depth increases with
+    digit count.
+    - A NAICS-style hyphenated sector-range code such as `48-49` must sit at
+      the same depth as plain two-digit codes like `11`/`21`, not deeper just
+      because its written form is longer.
+  - **Mixed conventions** within one file (e.g. fixed-width single-letter
+    section codes on top, dot-separated or differently-sized levels beneath).
+- Dot-separated parent correction (after rough depth assignment):
+  - Each dot-separated code's parent should be corrected to the nearest
+    *existing* code reachable by trimming trailing segment(s).
+    - Two codes can share a shape yet belong at different real depths: `01.11`
+      must nest under an existing `01.1` if present, not become a sibling of
+      `01`.
+    - Codes sharing a shape may still be correct siblings: `13.1` and `13.20`
+      can both be direct children of `13`.
+  - Codes with no dots are not corrected — no literal substring relationship
+    exists to override the shape-based guess.
+
+### Auto-detect parent handling
+
+The user picks one of two modes:
+
+1. **Parent codes already included**
+   - The file already has an explicit row for every ancestor level.
+   - Each code nests under its matching ancestor row; a code with no matching
+     ancestor becomes a root.
+2. **Auto-generate parent codes**
+   - Every provided code is treated purely as a leaf/child, never assumed to
+     double as another code's structural parent.
+   - **Missing implied ancestor** — synthesize a blank-title placeholder row
+     for it (e.g. produce `01` when only `01.a` and `01.b` are present).
+   - **Implied ancestor collides with a real code** (e.g. both `20` and `20.w`
+     provided — `20` is `20.w`'s natural parent but also its own real code):
+     - Do not repurpose the real code as a structural parent.
+     - Synthesize a new blank-title placeholder (e.g. `20 (group)`) as the
+       shared parent, with both the real code and whatever needed it as an
+       ancestor nested underneath as siblings.
+     - Chain correctly for deeper collisions: a colliding code whose own
+       natural parent is itself a colliding real code gets its own placeholder
+       the same way.
+     - Disambiguate a placeholder name that itself collides with an existing
+       code (e.g. `20 (group 2)`) rather than silently merging unrelated
+       nodes.
+   - **Sort position** — every synthesized or reparented code must land in a
+     stable, sensible position among its siblings (natural/numeric order), not
+     appended after real codes.
+   - **Single-child placeholder elision**
+     - A blank-title placeholder that would wrap only a single child (real or
+       another placeholder) is elided: reparent that child directly onto the
+       placeholder's own parent, cascading up if that leaves *that* ancestor
+       with only one child too.
+     - A placeholder with two or more children is a real grouping and is
+       always kept.
+     - Exception: `20 (group)`-style collision placeholders are never elided —
+       by construction they always have at least two children.
+
+- The bundled demo datasets include an explicit row for every ancestor level,
+  so they use mode 1.
 
 *Where this lives: `src/lib/csv.js` (column guessing), `src/lib/hierarchy.js`
-(level inference, parent synthesis), `src/components/ColumnMapper.svelte`
-and `src/components/SystemPanel.svelte` (upload UI), `src/App.svelte` (the
-demo-data banner).*
+(level inference, parent synthesis), `src/components/ColumnMapper.svelte` and
+`src/components/SystemPanel.svelte` (upload UI), `src/lib/tooltip.js` and
+`src/components/FastTooltip.svelte` (the shared fast-appearing hover tooltip),
+`src/App.svelte` (the demo-data banner).*
 
 ## Browsing a system
 
 Each loaded system is shown as a collapsible, searchable tree.
 
-- Top-level codes are expanded by default so the tree isn't a wall of
-  collapsed roots; deeper levels start collapsed. The user can expand or
-  collapse everything, or toggle one section at a time. This default-expand
-  only ever applies once, the moment a system's hierarchy is first built —
-  never again afterward as a side effect of the user's own later collapsing.
-  In particular, collapsing every currently-open section (via the "Collapse"
-  button, or by manually toggling the last one closed by hand) must actually
-  leave the tree fully collapsed, not silently re-expand the roots back out.
-- Typing in the search box filters to codes whose code or title contains the
-  query (case-insensitive), keeping any ancestor needed to reach a match
-  visible even if the ancestor itself doesn't match. Starting or refining a
-  search should auto-expand exactly the sections needed to reveal the
-  current matches, once — after that, the user must be free to manually
-  collapse any section, including one that's currently part of the search
-  results, without the app forcing it back open on a later interaction. A
-  broad early keystroke (e.g. a single common letter, which can legitimately
-  match nearly everything) is expected to auto-expand a large part of the
-  tree for that instant, but that expansion must not persist once the query
-  is refined or cleared — only sections the user explicitly touched stay
-  expanded once the search ends, so a finished search never leaves the tree
-  permanently more exploded than it was before that search began.
-- A section should automatically collapse itself the moment every leaf
-  beneath it becomes mapped, so a tree fills with visual "done" signals as
-  work progresses — but only at the moment that transition happens, not
-  every time the app re-renders, so a user who deliberately reopens an
-  already-complete section (e.g. to double check it) isn't fought by the
-  auto-collapse behavior.
-- There is no separate "hide mapped codes" control. Instead, a mapped leaf
-  stays visible but visually de-emphasized with a checkmark, a no-match leaf
-  is visually marked as such distinctly from a real mapping, and every
-  ancestor shows a running "N of M mapped" count aggregated from its
-  descendants so progress is visible at a glance without hiding anything.
-  Each system also shows an overall progress bar (mapped leaves out of
-  total leaves for that system), which turns a distinct "complete" color at
-  100%. This "N of M mapped" leaf count is the only total the panel header
-  shows — there is no separate raw node/row count displayed anywhere, since a
-  system's node count (which includes ancestor/parent rows that are never
-  individually mappable) is a different, larger number than its leaf count
-  and showing both side by side previously read as a bug ("it says 1134
-  codes but only 1047 mapped"). An ancestor only gets the same visual de-emphasis as a mapped leaf
-  once its *entire* subtree is mapped (N of M reaching M of M) — a
-  partially-mapped ancestor keeps its normal, undimmed appearance, since
-  unlike a mapped leaf it is still a live, clickable affordance (clicking it
-  selects its remaining unmapped leaves; see "Selecting codes" below), and
-  dimming it the same way a "done" code is dimmed would misleadingly suggest
-  there's nothing left to do there.
-- Hovering any code shows its longer description as a tooltip if one was
-  provided, or its title otherwise — including for an already-mapped or
-  locked code, since the information is still useful there and the cursor
-  should never look "blocked."
-- A system's name is editable at any time (used later in exported
-  filenames) and always visible, not only revealed on hover.
-- Replacing a system's file is destructive: since a mapping's codes for that
-  side stop meaning anything once the underlying file (and its hierarchy) is
-  gone, doing so must delete every mapping group that touches that side —
-  not merely leave that side blank on affected groups — and must warn the
-  user with a count of affected mappings and require confirmation before
-  proceeding, since it cannot be undone.
+- **Default expansion**
+  - Top-level codes are expanded by default; deeper levels start collapsed.
+  - The user can expand/collapse everything or toggle one section at a time.
+  - Default-expand applies exactly once, the moment a hierarchy is first
+    built — never again as a side effect of later collapsing.
+  - Collapsing every open section (via "Collapse" or by manually toggling the
+    last one closed) must leave the tree fully collapsed, not re-expand the
+    roots.
+- **Search**
+  - Typing filters to codes whose code or title contains the query
+    (case-insensitive), keeping any ancestor needed to reach a match visible
+    even if the ancestor itself doesn't match.
+  - Starting or refining a search auto-expands exactly the sections needed to
+    reveal current matches — once.
+    - After that, the user may manually collapse any section (including one in
+      the current results) without the app forcing it back open.
+  - A broad early keystroke (e.g. one common letter) may auto-expand a large
+    part of the tree for that instant, but that expansion must not persist
+    once the query is refined or cleared.
+    - Only sections the user explicitly touched stay expanded when the search
+      ends; a finished search must never leave the tree permanently more
+      exploded than before it began.
+- **Auto-collapse on completion**
+  - A section should auto-collapse the moment every leaf beneath it becomes
+    mapped, filling the tree with "done" signals as work progresses.
+  - Only at that transition — not on every re-render — so a user who
+    deliberately reopens a complete section isn't fought by the behavior.
+- **Mapped-state display** (no separate "hide mapped codes" control)
+  - A mapped leaf stays visible but visually de-emphasized with a checkmark.
+  - A no-match leaf is marked distinctly from a real mapping.
+  - Every ancestor shows a running "N of M mapped" count aggregated from its
+    descendants.
+  - Each system shows an overall progress bar (mapped leaves out of total
+    leaves), turning a distinct "complete" color at 100%.
+  - "N of M mapped" is the only total the panel header shows. There is no
+    separate raw node/row count anywhere — node count includes never-mappable
+    ancestor rows and is a larger number than leaf count; showing both
+    previously read as a bug ("it says 1134 codes but only 1047 mapped").
+  - An ancestor gets the mapped-leaf de-emphasis only once its *entire*
+    subtree is mapped (N of M reaching M of M).
+    - A partially-mapped ancestor keeps its normal, undimmed appearance: it is
+      still a live, clickable affordance (clicking selects its remaining
+      unmapped leaves — see "Selecting codes"), and dimming it would
+      misleadingly suggest nothing is left to do.
+- **Hover tooltip** — hovering any code shows its longer description if
+  provided, else its title. This includes an already-mapped or locked code,
+  since the info is still useful and the cursor must never look "blocked."
+- **System name** — editable at any time (used in exported filenames) and
+  always visible, not only revealed on hover.
+- **Replacing a system's file is destructive**
+  - Its codes for that side stop meaning anything once the file (and
+    hierarchy) is gone.
+  - It must delete every mapping group touching that side — not merely blank
+    that side on affected groups.
+  - It must warn with a count of affected mappings and require confirmation;
+    it cannot be undone.
 
 *Where this lives: `src/components/TreePanel.svelte`, `src/lib/hierarchy.js`
-(the tree-flattening/search logic).*
+(tree-flattening/search logic).*
 
 ## Building mappings
 
-**Selecting codes.** Clicking a leaf code in a tree toggles it in that
-side's current selection. A leaf that already belongs to a real mapping
-group must refuse the click outright rather than allow a selection that
-would silently fail later — the user should never be able to build up a
-selection that quietly loses codes at link time. Clicking an ancestor code
-that isn't already selected does not select that ancestor directly; instead
-it selects every not-yet-mapped leaf beneath it (adding to, not replacing,
-whatever else is already selected), auto-expanding the tree as needed so the
-newly selected codes are actually visible, and displaying the result
-compacted to the highest fully-selected ancestor(s) rather than a long flat
-list of leaves. An ancestor code that *is* currently selected (which can
-happen as a result of that compaction) must be deselectable by clicking it
-again, exactly like a leaf, rather than re-running the "select unmapped"
-behavior a second time.
+### Selecting codes
 
-**Creating a mapping.** With at least one code selected on both sides, the
-user can link them into one new mapping group covering every selected code
-on each side (expanded to their full leaf sets) — one single group, not one
-row per pairing. The group's name defaults to the linked A-side leaf codes
-themselves (semicolon-joined), since a title can be long or missing while a
-code is always short and stable, though the underlying leaf set — not the
-name — is what actually defines the mapping. An optional note can be
-attached to the new group at creation time. Before linking, the user also
-picks whether the mapping being created is "equal" (the default) or
-"approximately equal" via a two-option switch sitting between the two
-selection lists — the choice applies to the *next* mapping created and
-persists across links until changed, so a user creating several approximate
-mappings in a row doesn't have to reselect it each time; it can still be
-changed after the fact (see "Editing an existing mapping" below). Pressing
-the `G` key is equivalent to clicking the Group button (only while it's the
-live action, i.e. both sides have a selection) — the shortcut is ignored
-while focus is in a text input (the search box, a note field, etc.) so it
-can never interrupt normal typing.
+- Clicking a leaf toggles it in that side's current selection.
+- A leaf already in a real mapping group must refuse the click outright rather
+  than allow a selection that would silently fail at link time.
+- Clicking an ancestor that isn't already selected does not select the
+  ancestor directly; instead it:
+  - selects every not-yet-mapped leaf beneath it (adding to, not replacing,
+    the existing selection),
+  - auto-expands the tree so the newly selected codes are visible, and
+  - displays the result compacted to the highest fully-selected ancestor(s),
+    not a long flat list of leaves.
+- An ancestor that *is* currently selected (which can result from compaction)
+  must be deselectable by clicking it again, exactly like a leaf — not re-run
+  the "select unmapped" behavior.
 
-**Flagging no-match.** With a selection on exactly one side (and nothing
-selected on the other), the user can instead flag those codes as having no
-counterpart. Each flagged code becomes its own separate no-match entry, even
-if several were flagged in the same action — codes marked no-match together
-are not necessarily related to each other the way a real many-to-many
-mapping's codes are, so they must never be bundled into one shared group.
+### Creating a mapping
 
-**One real mapping per code, per side.** A leaf code may belong to at most
-one *real* mapping group on a given side, though it may appear alongside as
-many codes as needed on the *other* side of that one group (that's what
-makes the mapping many-to-many). Any action that would put a code into a
-second real group on the same side — creating a group, adding to an
-existing group by drag-and-drop, or moving a code between groups — must
-instead skip that code and report the skip back to the user (e.g. as a
-message with a count), never silently drop the whole action and never
-silently let one group steal a code out of another. A no-match flag does
-*not* count as a claim on a code for this rule: a code already flagged
-no-match must still be linkable into a real mapping later without being
-blocked by its own earlier no-match entry, and doing so should replace
-(shrink or remove) that now-contradicted no-match entry rather than leaving
-both around.
+- With at least one code selected on both sides, the user can link them into
+  one new mapping group covering every selected code on each side (expanded to
+  full leaf sets) — one group, not one row per pairing.
+- **Default name** — the linked A-side leaf codes, semicolon-joined (a code is
+  short and stable while a title can be long or missing). The underlying leaf
+  set, not the name, defines the mapping.
+- An optional note can be attached at creation time.
+- **Relationship switch** — before linking, the user picks "equal" (default)
+  or "approximately equal" via a two-option switch between the two selection
+  lists.
+  - The choice applies to the *next* mapping created and persists across links
+    until changed.
+  - It can still be changed after the fact (see "Editing an existing
+    mapping").
+- **`G` shortcut** — equivalent to clicking Group, only while that's the live
+  action (both sides have a selection). Ignored while focus is in a text input
+  (search box, note field, etc.) so it never interrupts typing.
 
-**Editing an existing mapping.** In the list of existing mappings, each
-group's codes are shown as compact chips — one chip can represent an entire
-ancestor's worth of leaves when every one of them is present in that group,
-rather than a long flat list. Dragging a code from a tree onto an existing
-group's side adds it to that group (subject to the one-real-mapping-per-side
-rule above); dragging a chip from one group onto a different group's same
-side moves it there instead of duplicating it, and that move must never
-itself be treated as a conflict with the group it's leaving. Removing a chip
-removes every leaf code it represents; a group with no codes left on either
-side disappears entirely. Each group's relationship can be toggled between
-"equal" (shown as `=`) and "approximately equal" (shown as `≈`) with a
-single click on that glyph, matching the equal/approx switch used at
-creation time so the two controls read as the same concept. A
-group's note is editable at any time but should stay compact, static text
-until the user explicitly opens it for editing, since a project can have
-hundreds of mapping rows and every row being an always-open text field would
-make the list unscannable.
+### Flagging no-match
 
-**Cross-panel highlighting.** Hovering any code in a tree (leaf or ancestor)
-should highlight every mapping group that touches it — including, for an
-ancestor, every group touching any of its leaf descendants — in the mapping
-list, so a user can quickly see what's already been done for a code they're
-looking at. With hundreds of mapping rows the matching row is often off
-the visible list, so the highlight is paired with scrolling that row into
-view — but only just enough to make it visible (never re-centering a row
-that's already on screen, which would be a distracting jump for no reason).
-Within a highlighted row, the specific code bubble the hovered code actually
-falls under (not every bubble in that row) gets its own, more prominent
-highlight too — a compacted bubble can represent several leaves, so this
-follows the same leaf-overlap check as the row-level highlight, just scoped
-to that one bubble's leaf set.
+- With a selection on exactly one side (nothing on the other), the user can
+  flag those codes as having no counterpart.
+- Each flagged code becomes its own separate no-match entry, even if several
+  were flagged in one action — codes marked no-match together are not
+  necessarily related, so they must never be bundled into one shared group.
 
-Going the other direction, clicking a code chip in the mapping list reveals
-that code in its own tree: any collapsed ancestor needed to reach it is
-expanded, the tree scrolls to it, and it flashes briefly so the user's eye
-finds it immediately rather than having to scan for it.
+### One real mapping per code, per side
 
-*Where this lives: `src/lib/stores.js` (mapping mutations, the uniqueness
-rule, and the focus-request store used for the click-to-reveal),
-`src/components/MappingBar.svelte` (creating mappings),
-`src/components/MappingList.svelte` (editing existing mappings, hover-driven
-scroll, click-to-reveal), `src/components/TreePanel.svelte` (expand/scroll/
-flash in response to a reveal request).*
+- A leaf may belong to at most one *real* mapping group on a given side.
+  - It may appear alongside as many codes as needed on the *other* side of
+    that one group (this is what makes the mapping many-to-many).
+- Any action that would put a code into a second real group on the same side —
+  creating a group, adding by drag-and-drop, or moving between groups — must
+  skip that code and report the skip to the user (e.g. a message with a
+  count).
+  - Never silently drop the whole action; never silently let one group steal a
+    code from another.
+- A no-match flag does *not* count as a claim on a code:
+  - A code already flagged no-match must still be linkable into a real mapping
+    later without being blocked by its own no-match entry.
+  - Doing so should replace (shrink or remove) the now-contradicted no-match
+    entry rather than leaving both around.
+
+### Editing an existing mapping
+
+- Each group's codes are shown as compact chips — one chip can represent an
+  entire ancestor's worth of leaves when all of them are present, rather than
+  a long flat list.
+- **Chip hover** — shows the chip's title via a fast-appearing custom tooltip
+  (a short, fixed delay), not the native `title` attribute, whose
+  browser-controlled show delay is too slow for quickly scanning many codes.
+  - This same tooltip is reused anywhere else that needs a quick hover
+    explanation (e.g. the column-mapping "?" hints — see "Uploading and
+    preparing a system").
+- **Drag onto a group's side** adds the code to that group (subject to the
+  one-real-mapping-per-side rule).
+- **Drag a chip between groups' same side** moves it (not duplicate), and that
+  move must never be treated as a conflict with the group it's leaving.
+- **Removing a chip** removes every leaf it represents; a group with no codes
+  left on either side disappears entirely.
+- **Relationship toggle** — `=` (equal) ⇄ `≈` (approximately equal) via a
+  single click on the glyph, matching the creation-time switch so the two read
+  as one concept.
+- **Note** — editable at any time but stays compact, static text until the
+  user opens it for editing (a project can have hundreds of rows; always-open
+  fields would make the list unscannable).
+
+### Cross-panel highlighting
+
+- Hovering any code (leaf or ancestor) highlights every mapping group touching
+  it in the mapping list — for an ancestor, every group touching any of its
+  leaf descendants.
+- Highlighting is paired with scrolling the row into view (rows are often off
+  screen with hundreds of mappings) — but only just enough to make it visible,
+  never re-centering a row already on screen.
+- Within a highlighted row, the specific bubble the hovered code falls under
+  (not every bubble in the row) gets its own more prominent highlight, using
+  the same leaf-overlap check as the row-level highlight, scoped to that
+  bubble's leaf set.
+- **Reverse direction** — clicking a code chip in the mapping list reveals
+  that code in its own tree: expand any collapsed ancestor needed to reach it,
+  scroll to it, and flash it briefly.
+
+*Where this lives: `src/lib/stores.js` (mapping mutations, uniqueness rule,
+focus-request store for click-to-reveal), `src/components/MappingBar.svelte`
+(creating mappings), `src/components/MappingList.svelte` (editing, hover-driven
+scroll, click-to-reveal), `src/components/TreePanel.svelte` (expand/scroll/flash
+on a reveal request).*
 
 ## Undo and redo
 
-Undo/redo covers mapping edits only — creating, editing, or removing
-mappings and no-match flags — not tree selections, hover state, or file
-uploads, none of which are "edits" a user would expect to step back through.
-Undoing steps back through the history of mapping states one action at a
-time; redoing steps forward again, but only until the next new edit is made,
-at which point whatever could have been redone is discarded (a fresh edit
-after an undo should never leave a dangling, inconsistent redo option).
-History must be fully cleared — not merely emptied by undoing back through
-it — whenever the mappings are replaced wholesale rather than incrementally
-edited, i.e. when the user clears everything or loads a different saved
-project, since "undoing" into an unrelated prior project's mappings would
-be confusing rather than useful.
+- Undo/redo covers mapping edits only — creating, editing, or removing
+  mappings and no-match flags.
+  - It does not cover tree selections, hover state, or file uploads.
+- Undo steps back through mapping-state history one action at a time; redo
+  steps forward.
+- Redo is available only until the next new edit, at which point the redo
+  stack is discarded (a fresh edit after undo must never leave a dangling,
+  inconsistent redo option).
+- History must be fully cleared — not merely emptied by undoing through it —
+  whenever the mappings are replaced wholesale rather than incrementally
+  edited (clearing everything, or loading a different saved project), since
+  undoing into an unrelated prior project would be confusing.
 
 *Where this lives: `src/lib/stores.js`, `src/components/Toolbar.svelte`.*
 
 ## Persistence
 
-The app must work with zero setup and never lose work silently:
+The app must work with zero setup and never lose work silently.
 
-- Every change to either system, the mapping list, or the current
-  selections should be auto-saved to the browser's local storage shortly
-  after it happens (a short debounce is fine — the change doesn't need to
-  be durable within milliseconds), so a reload or accidental tab close
-  doesn't lose work. A save that's still pending when the tab is about to
-  close or go into the background must be flushed immediately rather than
-  lost to the debounce window.
-- Re-opening the app should restore the most recently saved state
-  automatically, with no explicit "restore" action required from the user.
-- Only the raw uploaded rows and column choices need to be saved per system
-  — the derived hierarchy itself does not need to be persisted, since it can
-  always be rebuilt deterministically from the rows and column choices.
-- The user can also explicitly save the full current state (both systems,
-  every mapping, current selections) as a downloadable project file, and
-  load such a file back in later to fully replace the current state
-  (including resetting undo/redo history, per the rule above) — this is the
-  mechanism for resuming work on a different device or sharing in-progress
-  work with someone else, independent of the automatic local-storage save.
+- **Auto-save** — every change to either system, the mapping list, or the
+  current selections should be auto-saved to local storage shortly after it
+  happens (a short debounce is fine).
+  - A save still pending when the tab is about to close or background must be
+    flushed immediately, not lost to the debounce window.
+- **Auto-restore** — re-opening the app restores the most recently saved state
+  automatically, with no explicit "restore" action.
+- **What is saved per system** — only the raw uploaded rows and column choices.
+  The derived hierarchy is not persisted; it is rebuilt deterministically from
+  rows and column choices.
+- **Project file** — the user can explicitly save the full current state (both
+  systems, every mapping, current selections) as a downloadable file, and load
+  one back to fully replace the current state (including resetting undo/redo
+  history, per the rule above).
+  - This is the mechanism for resuming on another device or sharing
+    in-progress work, independent of local-storage auto-save.
 
 *Where this lives: `src/lib/stores.js`.*
 
 ## Exporting the crosswalk
 
-A single export action produces one downloadable CSV — a user should never
-have to choose a format up front or trigger multiple separate downloads.
-Clicking the toolbar's export button never downloads anything by itself: it
-first opens a citation-agreement popup (crediting Crosswalk Generator/its
-license) with its own "Export" button, disabled until the user checks an
-explicit "I agree to credit..." checkbox; only confirming that popup triggers
-the actual download. Canceling the popup (its own Cancel button, Escape, or
-its backdrop) closes it without downloading anything.
-
-The CSV has one row *per code* (not per A×B pairing): every group contributes
-one row for each of its A-side leaf codes and one row for each of its B-side
-leaf codes, all sharing that group's number. A group linking 2 A-codes to 3
-B-codes therefore produces 5 rows, not a 6-row cross-product. Columns:
-
-- `group_number` — sequential, starting at 1 in group order (not derived from
-  the group's name or codes).
-- `system` — literally "A" or "B", identifying which side the row belongs to
-  regardless of what either system was named.
-- `system_name` — the owning system's own name (falling back to "A"/"B" if a
-  name was never set), so a row can also be told apart from its
-  counterpart(s) in the other system by a human-readable label, not just the
-  `system` letter.
-- `code`, `title`, `description` — the code's own fields, joined from its
-  system's hierarchy (`description` blank if the system has no description
-  column).
-- `relationship` — "equal" or "approximate", repeated on every row belonging
-  to that group; blank for a no-match entry (there is nothing to qualify).
-- `note` — the group's free-text note, repeated on every row belonging to
-  that group.
-
-A no-match entry still gets its own group number and contributes rows only
-for whichever side actually has codes.
-
-The exported filename should reflect both systems' names (falling back to
-generic labels if a name was never set) and the export date, so multiple
-exports over time or across dataset pairs don't collide or require manual
-renaming.
+- A single export action produces one downloadable CSV. The user must never
+  choose a format up front or trigger multiple downloads.
+- **Citation-agreement popup**
+  - Clicking the toolbar's export button never downloads anything by itself;
+    it first opens a citation-agreement popup (crediting Crosswalk
+    Generator/its license) with its own "Export" button.
+  - That button is disabled until the user checks an explicit "I agree to
+    credit…" checkbox.
+  - Only confirming the popup triggers the download.
+  - Canceling (its Cancel button, Escape, or its backdrop) closes it without
+    downloading.
+- **Row shape** — one row *per code*, not per A×B pairing.
+  - Every group contributes one row for each A-side leaf and one row for each
+    B-side leaf, all sharing that group's number.
+  - A group linking 2 A-codes to 3 B-codes produces 5 rows, not a 6-row
+    cross-product.
+- **Columns**
+  - `group_number` — sequential, starting at 1 in group order (not derived
+    from the group's name or codes).
+  - `system` — literally "A" or "B", regardless of what either system was
+    named.
+  - `system_name` — the owning system's own name (falling back to "A"/"B" if
+    never set).
+  - `code`, `title`, `description` — the code's own fields from its system's
+    hierarchy (`description` blank if the system has no description column).
+  - `relationship` — "equal" or "approximate", repeated on every row of the
+    group; blank for a no-match entry (nothing to qualify).
+  - `note` — the group's free-text note, repeated on every row of the group.
+- A no-match entry still gets its own group number and contributes rows only
+  for whichever side has codes.
+- **Filename** — reflects both systems' names (falling back to generic labels
+  if never set) and the export date, so exports over time or across dataset
+  pairs don't collide or need manual renaming.
 
 *Where this lives: `src/lib/crosswalk.js`, `src/components/Toolbar.svelte`.*
 
 ## Global actions
 
-- Undo/redo controls must reflect whether there is actually anything to
-  undo/redo at all times — never enabled with nothing to do, never disabled
-  while a real action is available.
-- The export action should be disabled when there are no mappings at all,
-  since there would be nothing meaningful to produce.
-- Clearing everything ("Restart": both systems, every mapping, all
-  selections, and undo/redo history) is destructive and irreversible and
-  must require the user to confirm before it happens.
-- A "?" help button in the toolbar opens an overlay concisely explaining
-  what the tool does and the basic upload → select → group → export flow,
-  plus a short list of keyboard shortcuts (currently just `G` for Group). The
-  overlay closes via its own close button, the Escape key, or clicking its
-  backdrop. While it's open, the `G` shortcut is suppressed (checked via a
-  shared `helpOpen` store) so a keypress meant to dismiss/read the overlay
-  can never silently create a mapping behind it.
+- **Undo/redo controls** must always reflect whether anything is actually
+  available — never enabled with nothing to do, never disabled while a real
+  action exists.
+- **Export** must be disabled when there are no mappings at all.
+- **Restart** (clear both systems, every mapping, all selections, and
+  undo/redo history) is destructive and irreversible; it must require
+  confirmation.
+- **Help overlay** — a "?" toolbar button opens an overlay concisely
+  explaining what the tool does, the upload → select → group → export flow,
+  and a short list of keyboard shortcuts (currently just `G` for Group).
+  - Closes via its close button, Escape, or its backdrop.
+  - While open, the `G` shortcut is suppressed (checked via a shared
+    `helpOpen` store) so a keypress meant to dismiss/read the overlay can never
+    create a mapping behind it.
 
-*Where this lives: `src/components/Toolbar.svelte` (undo/redo, export,
-project save/load, restart, the help overlay), `src/lib/stores.js` (the
-`helpOpen` store checked by the Group shortcut).*
+*Where this lives: `src/components/Toolbar.svelte` (undo/redo, export, project
+save/load, restart, help overlay), `src/lib/stores.js` (the `helpOpen` store
+checked by the Group shortcut).*
 
 ## Explicit non-goals
 
-- No backend and no network calls of any kind — the app must work fully
-  offline, entirely in the browser, with no server-side dependency
-  introduced for any feature.
-- No inherent directionality between the two systems — every piece of
-  behavior must work the same regardless of which real-world classification
-  the user happens to have loaded as "A" vs. "B."
-- No feature should require the user to understand the underlying data
-  model (leaf vs. ancestor codes, compaction, etc.) to use the app
-  correctly — that distinction should be handled transparently by the
-  selection/linking/display behavior described above, not exposed as
-  something the user has to manage themselves.
+- **No backend, no network calls** of any kind — the app must work fully
+  offline in the browser, with no server-side dependency for any feature.
+- **No inherent directionality** between the two systems — every behavior must
+  work the same regardless of which real-world classification is loaded as "A"
+  vs. "B."
+- **No required understanding of the data model** (leaf vs. ancestor codes,
+  compaction, etc.) to use the app correctly — that distinction must be
+  handled transparently by selection/linking/display behavior, not exposed as
+  something the user manages.

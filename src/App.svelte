@@ -3,6 +3,7 @@
   import SystemPanel from './components/SystemPanel.svelte';
   import MappingBar from './components/MappingBar.svelte';
   import MappingList from './components/MappingList.svelte';
+  import FastTooltip from './components/FastTooltip.svelte';
   import {
     systemA,
     systemB,
@@ -18,26 +19,22 @@
     focusA,
     focusB,
     makeSystem,
-    demoBannerDismissed,
   } from './lib/stores.js';
   import { parseCsv, guessColumns } from './lib/csv.js';
 
   // The one-click demo pair loaded by the banner below — both sides at once,
   // paired so a first-time user has a working crosswalk to explore immediately.
-  // TODO: samples/nace-sample.csv is a small stand-in until a full NACE CSV is
-  // available; swap its `file` in for a full dataset once one is added.
   const DEMO_DATASET_A = { file: '2022_NAICS_Descriptions.csv', name: 'NAICS industry classification system' };
-  const DEMO_DATASET_B = { file: 'nace-sample.csv', name: 'NACE industry classification system' };
+  const DEMO_DATASET_B = { file: 'NACE_Rev2.1_Heading_EN.csv', name: 'NACE industry classification system' };
 
   let demoLoading = $state(false);
   let demoError = $state('');
 
-  // The banner offering the demo data is only relevant before either side has
-  // any data of its own — once real (or demo) data is loaded on either side,
-  // it disappears on its own, in addition to its own dismiss ("X") button.
-  // `demoBannerDismissed` lives in stores.js (not local state) so Restart can
-  // reset it and bring the banner back.
-  let showDemoBanner = $derived(!$demoBannerDismissed && !$systemA && !$systemB);
+  // The banner offering the demo data is only relevant while neither side has
+  // any data of its own — it has no dismiss button, so it reappears any time
+  // both systems become empty again (e.g. after replacing both files, or a
+  // Restart), not just once at the start of the session.
+  let showDemoBanner = $derived(!$systemA && !$systemB);
 
   async function loadDemoDataset({ file, name }) {
     const res = await fetch(`${import.meta.env.BASE_URL}samples/${file}`);
@@ -66,7 +63,6 @@
       systemB.set(b);
       clearSelection(selectionA);
       clearSelection(selectionB);
-      demoBannerDismissed.set(true);
     } catch (e) {
       demoError = `Could not load demo data: ${e.message ?? e}`;
     } finally {
@@ -93,14 +89,6 @@
         </button>
       </span>
       {#if demoError}<span class="demo-error">{demoError}</span>{/if}
-      <button
-        class="demo-dismiss"
-        onclick={() => demoBannerDismissed.set(true)}
-        aria-label="Dismiss"
-        title="Dismiss"
-      >
-        ✕
-      </button>
     </div>
   {/if}
 
@@ -167,6 +155,8 @@
   </footer>
 </div>
 
+<FastTooltip />
+
 <style>
   .app {
     display: flex;
@@ -191,12 +181,11 @@
     gap: 12px;
   }
   .demo-banner {
-    position: relative;
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 12px;
-    padding: 8px 40px;
+    padding: 8px 16px;
     background: var(--accent-soft);
     border-bottom: 1px solid var(--border);
     font-size: 13px;
@@ -216,18 +205,6 @@
   .demo-error {
     color: var(--danger);
     font-size: 12px;
-  }
-  .demo-dismiss {
-    position: absolute;
-    right: 16px;
-    border: none;
-    background: none;
-    padding: 2px 6px;
-    color: var(--text-muted);
-    font-size: 12px;
-  }
-  .demo-dismiss:hover {
-    color: var(--text);
   }
   footer {
     padding: 8px 16px;
