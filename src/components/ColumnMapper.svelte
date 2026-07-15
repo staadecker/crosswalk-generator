@@ -58,47 +58,47 @@
   <div class="section">
     <h3 class="section-title">{strings.selectColumnsTitle}</h3>
     <div class="fields">
-      <label>
+      <label for="col-code">
         <span>
           {strings.codeColumnLabel}
-          <span
+          <button
+            type="button"
             class="help"
-            tabindex="0"
             use:fastTooltip={strings.codeColumnHelp}
-            >?</span
+            >?</button
           >
         </span>
-        <select bind:value={codeCol}>
+        <select id="col-code" bind:value={codeCol}>
           <option value="">{strings.selectPlaceholder}</option>
           {#each fields as f}<option value={f}>{f}</option>{/each}
         </select>
       </label>
-      <label>
+      <label for="col-title">
         <span>
           {strings.titleColumnLabel}
-          <span
+          <button
+            type="button"
             class="help"
-            tabindex="0"
             use:fastTooltip={strings.titleColumnHelp}
-            >?</span
+            >?</button
           >
         </span>
-        <select bind:value={titleCol}>
+        <select id="col-title" bind:value={titleCol}>
           <option value="">{strings.selectPlaceholder}</option>
           {#each fields as f}<option value={f}>{f}</option>{/each}
         </select>
       </label>
-      <label>
+      <label for="col-desc">
         <span>
           {strings.descColumnLabel} <em>{strings.descColumnOptionalTag}</em>
-          <span
+          <button
+            type="button"
             class="help"
-            tabindex="0"
             use:fastTooltip={strings.descColumnHelp}
-            >?</span
+            >?</button
           >
         </span>
-        <select bind:value={descCol}>
+        <select id="col-desc" bind:value={descCol}>
           <option value="">{strings.nonePlaceholder}</option>
           {#each fields as f}<option value={f}>{f}</option>{/each}
         </select>
@@ -114,11 +114,11 @@
           <input type="checkbox" bind:checked={dataIncludesParents} />
           <span>
             {strings.dataIncludesParentsLabel}
-            <span
+            <button
+              type="button"
               class="help"
-              tabindex="0"
               use:fastTooltip={strings.dataIncludesParentsHelp}
-              >?</span
+              >?</button
             >
           </span>
         </label>
@@ -126,17 +126,17 @@
           {strings.parentsHint}
         </p>
       </div>
-      <label class="level-field" class:disabled={!dataIncludesParents}>
+      <label for="col-level" class="level-field" class:disabled={!dataIncludesParents}>
         <span>
           {strings.levelColumnLabel}
-          <span
+          <button
+            type="button"
             class="help"
-            tabindex="0"
             use:fastTooltip={strings.levelColumnHelp}
-            >?</span
+            >?</button
           >
         </span>
-        <select bind:value={levelCol} disabled={!dataIncludesParents}>
+        <select id="col-level" bind:value={levelCol} disabled={!dataIncludesParents}>
           <option value="">{strings.autoDetectOption}</option>
           {#each fields as f}<option value={f}>{f}</option>{/each}
         </select>
@@ -246,12 +246,15 @@
     justify-content: center;
     width: 14px;
     height: 14px;
+    padding: 0;
     border-radius: 50%;
     background: var(--surface-2);
     color: var(--text-muted);
     border: 1px solid var(--border);
+    font: inherit;
     font-size: 10px;
     font-weight: 700;
+    line-height: 1;
     cursor: help;
     flex: none;
   }

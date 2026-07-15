@@ -99,8 +99,12 @@ https://svelte.dev/llms-small.txt for a condensed reference if unsure.
   static text behind an edit toggle rather than always-editable fields).
 - `tests/logic.test.mjs` — plain-Node tests for the pure logic in `src/lib/*`
   (no browser/DOM). Run with `npm run test:logic`.
+- `tests/vite-build.test.mjs` — plain-Node check that `vite build` exits
+  cleanly with nothing on stderr, so Svelte compiler warnings (unused CSS
+  selectors, a11y issues) can't silently accumulate. Run with
+  `npm run test:build`.
 - `tests/crosswalk.spec.js` — Playwright end-to-end test driving the real UI.
-  Run with `npm run test:e2e` (or `npm test` for both suites).
+  Run with `npm run test:e2e` (or `npm test` for all three suites).
 
 ## Running things
 

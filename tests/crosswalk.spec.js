@@ -91,7 +91,7 @@ test('build hierarchies, map codes as groups, persist, and export a crosswalk', 
   await page.locator('.node', { hasText: '11111' }).first().click(); // Soybean Farming (source, leaf)
   await page.locator('.node', { hasText: '01.11' }).first().click(); // target 1
   await page.locator('.node', { hasText: '01.41' }).first().click(); // target 2
-  const link = page.getByRole('button', { name: 'Group' });
+  const link = page.getByRole('button', { name: 'Group', exact: true });
   await expect(link).toBeEnabled();
   await link.click();
 
@@ -335,7 +335,7 @@ test('"select unmapped" compacts to the topmost code and auto-expands so the sel
   // Map just 11111 (one of 11's four leaves), leaving the rest of sector 11 unmapped.
   await panelA.locator('.node', { hasText: '11111' }).first().click();
   await page.locator('.node', { hasText: '01.11' }).first().click();
-  await page.getByRole('button', { name: 'Group' }).click();
+  await page.getByRole('button', { name: 'Group', exact: true }).click();
 
   // Sector 11's shape: 111 -> {1111 -> [11111 (mapped), 11112], 1112 -> [11121]},
   // 112 -> 1121 -> [11211]. Only 11112 is a lone unmapped leaf under a partially
@@ -521,7 +521,7 @@ test('a code already mapped on one side can never be selected for a second mappi
   // First group: 11111 <-> 01.11.
   await page.locator('.node', { hasText: '11111' }).first().click();
   await page.locator('.node', { hasText: '01.11' }).first().click();
-  await page.getByRole('button', { name: 'Group' }).click();
+  await page.getByRole('button', { name: 'Group', exact: true }).click();
   await expect(page.locator('.list header h3 .count')).toHaveText('1');
 
   // Clicking an already-mapped code must not select it at all (not silently
@@ -545,7 +545,7 @@ test('a code already mapped on one side can never be selected for a second mappi
   await page.locator('.node', { hasText: '31111' }).first().click();
   await page.locator('.node', { hasText: '10.61' }).first().click();
   await expect(page.locator('.node.selected')).toHaveCount(2);
-  await page.getByRole('button', { name: 'Group' }).click();
+  await page.getByRole('button', { name: 'Group', exact: true }).click();
   await expect(page.locator('.list header h3 .count')).toHaveText('2');
 
   // Dragging an already-claimed code onto a *different* group is still skipped
@@ -592,7 +592,7 @@ test('renaming a dataset is reflected in the exported crosswalk filename', async
   for (const b of await page.locator('.controls button', { hasText: 'Expand' }).all()) await b.click();
   await page.locator('.node', { hasText: '11111' }).first().click();
   await page.locator('.node', { hasText: '01.11' }).first().click();
-  await page.getByRole('button', { name: 'Group' }).click();
+  await page.getByRole('button', { name: 'Group', exact: true }).click();
 
   const download = await exportViaCiteModal(page);
   expect(download.suggestedFilename()).toMatch(/^my-naics-set-to-my-nace-set-crosswalk-.*\.csv$/);
@@ -618,7 +618,7 @@ test('mapping note stays compact static text until explicitly opened for editing
 
   await page.locator('.node', { hasText: '11111' }).first().click();
   await page.locator('.node', { hasText: '01.11' }).first().click();
-  await page.getByRole('button', { name: 'Group' }).click();
+  await page.getByRole('button', { name: 'Group', exact: true }).click();
 
   const row = page.locator('.row').first();
 
@@ -670,7 +670,7 @@ test('hovering a mapped code bubble shows a fast custom tooltip with its title',
 
   await page.locator('.node', { hasText: '11111' }).first().click();
   await page.locator('.node', { hasText: '01.11' }).first().click();
-  await page.getByRole('button', { name: 'Group' }).click();
+  await page.getByRole('button', { name: 'Group', exact: true }).click();
 
   // No native `title` attribute on the bubble — the custom tooltip is the only
   // affordance, and it isn't shown until hovered.
@@ -755,7 +755,7 @@ test('replacing a file deletes mappings that reference it, after confirmation', 
 
   await page.locator('.node', { hasText: '11111' }).first().click();
   await page.locator('.node', { hasText: '01.11' }).first().click();
-  await page.getByRole('button', { name: 'Group' }).click();
+  await page.getByRole('button', { name: 'Group', exact: true }).click();
   await expect(page.locator('.list header h3 .count')).toHaveText('1');
 
   const replaceBtn = page.locator('.panel[data-accent="A"]').getByRole('button', { name: /Replace file/ });
@@ -769,7 +769,7 @@ test('replacing a file deletes mappings that reference it, after confirmation', 
 
   // Accepting it deletes the mapping (not just half of it) and returns to upload.
   page.once('dialog', (d) => {
-    expect(d.message()).toContain('1 mapping');
+    expect(d.message()).toContain('1 grouping');
     d.accept();
   });
   await replaceBtn.click();
@@ -799,12 +799,12 @@ test('dragging a bubble in the Mappings pane onto another group moves it there',
   await page.locator('.node', { hasText: '11111' }).first().click();
   await page.locator('.node', { hasText: '01.11' }).first().click();
   await page.locator('.node', { hasText: '01.41' }).first().click();
-  await page.getByRole('button', { name: 'Group' }).click();
+  await page.getByRole('button', { name: 'Group', exact: true }).click();
 
   // Second group: 31111 -> 10.61.
   await page.locator('.node', { hasText: '31111' }).first().click();
   await page.locator('.node', { hasText: '10.61' }).first().click();
-  await page.getByRole('button', { name: 'Group' }).click();
+  await page.getByRole('button', { name: 'Group', exact: true }).click();
 
   await expect(page.locator('.row')).toHaveCount(2);
   const firstRow = page.locator('.row').nth(0);
@@ -867,7 +867,7 @@ test('per-node progress fraction badges, mapped-code tooltip/cursor, auto-collap
   // mapped leaf itself shows a green checkmark instead of a numeric badge. ---
   await node11111.click();
   await page.locator('.node', { hasText: '01.11' }).first().click();
-  await page.getByRole('button', { name: 'Group' }).click();
+  await page.getByRole('button', { name: 'Group', exact: true }).click();
   await expect(node1111.locator('.badge')).toHaveText('1/2');
   await expect(node1111.locator('.badge')).not.toHaveClass(/zero|full/);
   await expect(node11111.locator('.badge')).toHaveText('✓');
@@ -895,7 +895,7 @@ test('per-node progress fraction badges, mapped-code tooltip/cursor, auto-collap
   // on that transition, so manually reopening it afterwards sticks. ---
   await node11112.click();
   await page.locator('.node', { hasText: '01.13' }).first().click();
-  await page.getByRole('button', { name: 'Group' }).click();
+  await page.getByRole('button', { name: 'Group', exact: true }).click();
   await expect(node1111.locator('.badge')).toHaveText('2/2');
   await expect(node1111.locator('.badge')).toHaveClass(/full/);
   // Now that every leaf underneath is mapped, the parent itself reads as
@@ -1055,7 +1055,7 @@ test('clicking a code bubble in the Mappings pane reveals and flashes it in its 
   // a shallower, always-visible ancestor.
   await panelA.locator('.node', { hasText: /\b11111\b/ }).click();
   await panelB.locator('.node', { hasText: /\b01\.11\b/ }).first().click();
-  await page.getByRole('button', { name: 'Group' }).click();
+  await page.getByRole('button', { name: 'Group', exact: true }).click();
 
   // Collapse everything, confirming the mapped leaf is genuinely hidden.
   await panelA.locator('button', { hasText: 'Collapse' }).click();
@@ -1107,7 +1107,7 @@ test('hovering a mapped code scrolls its Mappings-pane row into view', async ({ 
   for (let i = 0; i < Math.min(codesA.length, codesB.length); i++) {
     await panelA.locator(`.node[data-code="${codesA[i]}"]`).click();
     await panelB.locator(`.node[data-code="${codesB[i]}"]`).click();
-    await page.getByRole('button', { name: 'Group' }).click();
+    await page.getByRole('button', { name: 'Group', exact: true }).click();
   }
   await expect(page.locator('.row')).toHaveCount(10);
 
@@ -1178,7 +1178,7 @@ test('long titles wrap instead of being cut off, and the progress bar turns gree
   await expect(page.locator('.progress-fill').first()).not.toHaveClass(/complete/);
   await page.locator('.node', { hasText: 'X1' }).first().click();
   await page.locator('.node', { hasText: 'Y1' }).first().click();
-  await page.getByRole('button', { name: 'Group' }).click();
+  await page.getByRole('button', { name: 'Group', exact: true }).click();
   await expect(page.locator('.progress-label').nth(0)).toHaveText('1 / 1 mapped');
   await expect(page.locator('.progress-fill').first()).toHaveClass(/complete/);
   await expect(page.locator('.progress-fill').nth(1)).toHaveClass(/complete/);
@@ -1294,7 +1294,7 @@ test('the mapping relationship toggle switches between equal and approximately-e
 
   await page.locator('.node', { hasText: '11111' }).first().click();
   await page.locator('.node', { hasText: '01.11' }).first().click();
-  await page.getByRole('button', { name: 'Group' }).click();
+  await page.getByRole('button', { name: 'Group', exact: true }).click();
 
   // An equals sign, not the old two-way arrow — pairs visually with "≈".
   const relBtn = page.locator('.row').first().locator('.rel');
@@ -1338,7 +1338,7 @@ test('the mapping bar\'s equal/approx switch sets the relationship a new mapping
 
   await page.locator('.node', { hasText: '11111' }).first().click();
   await page.locator('.node', { hasText: '01.11' }).first().click();
-  await page.getByRole('button', { name: 'Group' }).click();
+  await page.getByRole('button', { name: 'Group', exact: true }).click();
 
   // The created mapping picked up "approximate" straight away, with no
   // separate toggle click needed afterward.
@@ -1402,7 +1402,7 @@ test('undo/redo buttons in the toolbar step through mapping changes', async ({ p
   // Create a mapping — undo becomes available, redo still isn't.
   await page.locator('.node', { hasText: '11111' }).first().click();
   await page.locator('.node', { hasText: '01.11' }).first().click();
-  await page.getByRole('button', { name: 'Group' }).click();
+  await page.getByRole('button', { name: 'Group', exact: true }).click();
   await expect(page.locator('.row')).toHaveCount(1);
   await expect(undoBtn).toBeEnabled();
   await expect(redoBtn).toBeDisabled();
@@ -1470,7 +1470,7 @@ test('exporting requires agreeing to a citation prompt before the download happe
   for (const b of await page.locator('.controls button', { hasText: 'Expand' }).all()) await b.click();
   await page.locator('.node', { hasText: '11111' }).first().click();
   await page.locator('.node', { hasText: '01.11' }).first().click();
-  await page.getByRole('button', { name: 'Group' }).click();
+  await page.getByRole('button', { name: 'Group', exact: true }).click();
 
   const exportBtn = page.getByRole('button', { name: 'Export crosswalk (.csv)' });
   const modal = page.locator('.help-modal', { hasText: 'Export crosswalk' });

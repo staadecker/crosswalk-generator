@@ -7,8 +7,8 @@
 import { pluralize } from './text.js';
 
 export const common = {
-  fallbackLabelA: 'A',
-  fallbackLabelB: 'B',
+  fallbackLabelA: 'System A',
+  fallbackLabelB: 'System B',
 };
 
 export const app = {
@@ -34,16 +34,15 @@ export const toolbar = {
   exportButton: 'Export crosswalk (.csv)',
   exportTitle: 'Download a single CSV: one row per code, grouped by a sequential group_number',
   saveProjectButton: 'Save project',
-  saveProjectTitle: 'Save systems + mappings as a reloadable JSON file',
+  saveProjectTitle: 'Save systems and groupings as a reloadable JSON file',
   loadProjectButton: 'Load project',
   loadProjectTitle: 'Load a saved project JSON',
   restartButton: 'Restart',
   restartTitle: 'Remove everything and start over',
-  nothingToExport: 'Nothing to export yet.',
   projectLoaded: 'Project loaded.',
   loadProjectError: (message) => `Could not load project: ${message}`,
   restarted: 'Restarted.',
-  restartConfirm: 'Restart? This clears both systems and all mappings — it cannot be undone.',
+  restartConfirm: 'Restart? Both systems and all groupings will be cleared. This cannot be undone.',
   dismissHelpAriaLabel: 'Dismiss help',
   helpHeading: 'How Crosswalk Generator works',
   closeHelpAriaLabel: 'Close help',
@@ -98,7 +97,7 @@ export const systemPanel = {
   uploadLabel: (title) => `Upload ${title} CSV`,
   uploadHint: 'Must include code and title columns. Level and description are optional.',
   confirmReplace: (affected) =>
-    `Replacing this file will delete ${affected} ${pluralize(affected, 'mapping')} that reference it. This cannot be undone. Continue?`,
+    `Replacing this file will delete ${affected} ${pluralize(affected, 'grouping')} that reference it. This cannot be undone. Continue?`,
 };
 
 export const columnMapper = {
@@ -118,12 +117,12 @@ export const columnMapper = {
   configureNestingTitle: 'Configure nesting',
   dataIncludesParentsLabel: 'Data includes parent codes',
   dataIncludesParentsHelp:
-    'Check this if your file already has an explicit row for every ancestor level (e.g. a row for "01" as well as "01.1" and "01.11"). Leave unchecked if it only lists the most specific codes.',
+    '',
   parentsHint:
-    'Parent codes are the ancestor rows above each code (e.g. "01" above "01.1"). Check this if your file already includes them — each code will nest under its own matching row. Leave unchecked (the default) to have missing ancestor codes generated automatically from each code\'s own structure (e.g. a "01" row will be created if only "01.a" and "01.b" are present).',
+    'Check this if your file has rows for parent codes (e.g. a row for "01" as well as "01.1" and "01.2"). If unchecked, parent codes will be generated automatically from each code\'s own structure (e.g. a "01" row will be created if "01.a" and "01.b" are present).',
   levelColumnLabel: 'Level column',
   levelColumnHelp:
-    'Optional. If your file has a column giving each row\'s hierarchy depth as an integer (not necessarily starting at 1 or sequential), pick it here. Leave on "Auto-detect" to infer depth from the shape of each code instead (e.g. "01" → "01.1" → "01.11", or a NAICS-style "48-49" sector range). Only available when "Data includes parent codes" is checked, since an explicit level column needs every ancestor row to already be present.',
+    'If your file has a column specifying the code\'s level, specify it here. Otherwise, the level will be infered from the shape of each code (e.g. "01" → "01.1" → "01.11", or a NAICS-style "48-49" sector range).',
   autoDetectOption: 'Auto-detect from code structure',
   tagLevel: 'level',
   tagCode: 'code',
@@ -134,36 +133,34 @@ export const columnMapper = {
 };
 
 export const mappingBar = {
-  clickLeftHint: 'Click codes on the left',
-  clickRightHint: 'Click codes on the right',
-  relationshipAriaLabel: 'Relationship for the next mapping',
-  equalTitle: 'Equal — the next mapping created will be an exact match',
-  approxTitle: 'Approximately equal — the next mapping created will be an approximate match',
+  clickLeftHint: 'Select codes',
+  clickRightHint: 'Select codes',
+  relationshipAriaLabel: 'Relationship for the next grouping',
+  equalTitle: 'Equal — the next grouping created will be an exact match',
+  approxTitle: 'Approximately equal — the next grouping created will be an approximate match',
   removeChipAriaLabel: (code) => `Remove ${code}`,
   notePlaceholder: 'Optional note…',
-  noteAriaLabel: 'Mapping note',
+  noteAriaLabel: 'Grouping note',
   markNoMatchButton: (n) => `Mark ${n} as no match`,
   groupButton: 'Group',
   groupButtonTitle: 'Group (shortcut: G)',
   linkedMessage: (keptA, keptB, skippedTotal) =>
-    `Created a mapping linking ${keptA} × ${keptB} code(s).` +
-    (skippedTotal ? ` (${skippedTotal} skipped — already mapped elsewhere)` : ''),
+    `Created a grouping linking ${keptA} × ${keptB} code(s).` +
+    (skippedTotal ? ` (${skippedTotal} skipped — already grouped elsewhere)` : ''),
   markedNoMatchMessage: (added, skipped) =>
-    `Marked ${added} ${pluralize(added, 'code')} as no match${skipped ? ` (${skipped} skipped — already mapped)` : ''}.`,
+    `Marked ${added} ${pluralize(added, 'code')} as no match${skipped ? ` (${skipped} skipped — already grouped)` : ''}.`,
   linkHint: (nA, labelA, nB, labelB) =>
-    `Creates one mapping grouping ${nA} ${labelA} ${pluralize(nA, 'code')} with ${nB} ${labelB} ${pluralize(nB, 'code')}.`,
+    `Group ${nA} ${labelA} ${pluralize(nA, 'code')} with ${nB} ${labelB} ${pluralize(nB, 'code')}.`,
   noMatchHint: (n) => `These ${n} code(s) have no counterpart? Mark them no match.`,
-  defaultHint: 'Click one or more codes on each side to link them.',
+  defaultHint: '',
 };
 
 export const mappingList = {
   groupingsTitle: 'Groupings',
-  onlySelectedLabel: 'Only selected',
   emptyNoGroupingsPrefix: 'No groupings yet. Click codes on each side, then',
   emptyNoGroupingsSuffix: 'them.',
-  emptyFiltered: 'No mappings touch the current selection.',
   sideAriaLabel: (label, name) => `${label} codes for ${name}`,
-  noMatchDropHint: (label) => `— (no match) — drop a ${label} code here`,
+  noMatchDropHint: (label) => `No match`,
   relTitleApprox: 'Approximately equal — click to mark as equal',
   relTitleEqual: 'Equal — click to mark as approximately equal',
   toggleRelAriaLabel: (name) => `Toggle equal/approximately-equal for ${name}`,
@@ -171,11 +168,11 @@ export const mappingList = {
   addNoteTitle: 'Add a note',
   editNoteAriaLabel: (name) => `Edit note for ${name}`,
   addNoteAriaLabel: (name) => `Add a note for ${name}`,
-  removeMappingTitle: 'Remove this whole mapping',
-  removeMappingAriaLabel: (name) => `Remove mapping ${name}`,
+  removeMappingTitle: 'Remove this whole grouping',
+  removeMappingAriaLabel: (name) => `Remove grouping ${name}`,
   notePlaceholder: 'Add a note…',
   noteAriaLabel: (name) => `Note for ${name}`,
-  skippedMessage: (n) => `${n} ${pluralize(n, 'code')} skipped — already mapped elsewhere.`,
+  skippedMessage: (n) => `${n} ${pluralize(n, 'code')} skipped — already grouped elsewhere.`,
 };
 
 export const treePanel = {
@@ -185,7 +182,7 @@ export const treePanel = {
   renameDatasetTitle: 'Rename dataset',
   renameAriaLabel: (name) => `Rename ${name}`,
   replaceFileButton: 'Replace file…',
-  replaceFileTitle: 'Replace this file — deletes any mappings that reference it',
+  replaceFileTitle: 'Replace this file — deletes any groupings that reference it',
   searchPlaceholder: 'Search code or title…',
   searchAriaLabel: (name) => `Search ${name}`,
   expandButton: 'Expand',

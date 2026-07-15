@@ -20,14 +20,11 @@
     mappings = [],
     systemA = null,
     systemB = null,
-    selectionA = new Set(),
-    selectionB = new Set(),
   } = $props();
 
   let labelA = $derived(systemA?.name || common.fallbackLabelA);
   let labelB = $derived(systemB?.name || common.fallbackLabelB);
 
-  let filterToSelection = $state(false);
   let dragOverKey = $state(null); // `${groupId}:${side}` currently being dragged over
   let flash = $state('');
 
@@ -85,15 +82,6 @@
       bBubbles: bubbles(systemB, bByCode, g.bLeafCodes),
     })),
   );
-
-  let visible = $derived(
-    rows.filter((g) => {
-      if (!filterToSelection) return true;
-      return g.aLeafCodes.some((c) => selectionA.has(c)) || g.bLeafCodes.some((c) => selectionB.has(c));
-    }),
-  );
-
-  let hasSelection = $derived(selectionA.size > 0 || selectionB.size > 0);
 
   // The leaf descendants of whatever's currently hovered in each tree panel (or
   // null if nothing's hovered there) — the hovered code may be an ancestor (e.g.
@@ -171,21 +159,13 @@
   <header>
     <h3>{strings.groupingsTitle} <span class="count">{mappings.length}</span></h3>
     {#if flash}<span class="flash" aria-live="polite">{flash}</span>{/if}
-    {#if hasSelection}
-      <label class="filter">
-        <input type="checkbox" bind:checked={filterToSelection} />
-        {strings.onlySelectedLabel}
-      </label>
-    {/if}
   </header>
 
   <div class="rows" bind:this={rowsEl}>
     {#if mappings.length === 0}
       <p class="empty">{strings.emptyNoGroupingsPrefix} <strong>Group</strong> {strings.emptyNoGroupingsSuffix}</p>
-    {:else if visible.length === 0}
-      <p class="empty">{strings.emptyFiltered}</p>
     {:else}
-      {#each visible as m (m.id)}
+      {#each rows as m (m.id)}
         <div class="row" data-group-id={m.id} class:nomatch={m.noMatch} class:highlighted={highlightedIds.has(m.id)}>
           <div class="row-head">
             <div class="pair">
@@ -203,10 +183,12 @@
                     <span
                       class="bubble"
                       class:bubble-highlighted={bubbleHighlighted(b, hoverALeaves)}
-                      role="listitem"
+                      role="button"
+                      tabindex="0"
                       draggable="true"
                       use:fastTooltip={() => b.tooltip}
                       onclick={() => focusCode('A', b.code)}
+                      onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && focusCode('A', b.code)}
                       ondragstart={(e) => {
                         e.dataTransfer.setData('text/plain', b.code);
                         e.dataTransfer.setData('application/x-crosswalk-side', 'A');
@@ -253,10 +235,12 @@
                     <span
                       class="bubble"
                       class:bubble-highlighted={bubbleHighlighted(b, hoverBLeaves)}
-                      role="listitem"
+                      role="button"
+                      tabindex="0"
                       draggable="true"
                       use:fastTooltip={() => b.tooltip}
                       onclick={() => focusCode('B', b.code)}
+                      onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && focusCode('B', b.code)}
                       ondragstart={(e) => {
                         e.dataTransfer.setData('text/plain', b.code);
                         e.dataTransfer.setData('application/x-crosswalk-side', 'B');
@@ -348,13 +332,6 @@
     padding: 0 6px;
     margin-left: 4px;
     color: var(--text-muted);
-  }
-  .filter {
-    font-size: 12px;
-    color: var(--text-muted);
-    display: flex;
-    align-items: center;
-    gap: 4px;
   }
   .flash {
     font-size: 11px;

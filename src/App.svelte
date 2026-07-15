@@ -126,8 +126,6 @@
         mappings={$mappings}
         systemA={$systemA}
         systemB={$systemB}
-        selectionA={$selectionA}
-        selectionB={$selectionB}
       />
     </section>
 

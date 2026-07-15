@@ -52,10 +52,6 @@
   // dropdown to choose between, and no zip to unpack.
   function exportCsv() {
     const groups = get(mappings);
-    if (!groups.length) {
-      flash(strings.nothingToExport);
-      return;
-    }
     const a = get(systemA);
     const b = get(systemB);
     const pair = pairSlug(a, b);
@@ -338,22 +334,22 @@
     font-size: 13px;
     line-height: 1.5;
   }
-  .help-body h3 {
+  .help-body :global(h3) {
     font-size: 12px;
     text-transform: uppercase;
     letter-spacing: 0.04em;
     color: var(--text-muted);
     margin: 16px 0 6px;
   }
-  .help-body ol,
-  .help-body ul {
+  .help-body :global(ol),
+  .help-body :global(ul) {
     margin: 0 0 12px;
     padding-left: 20px;
   }
-  .help-body li {
+  .help-body :global(li) {
     margin-bottom: 4px;
   }
-  .help-body kbd {
+  .help-body :global(kbd) {
     display: inline-block;
     min-width: 16px;
     text-align: center;
