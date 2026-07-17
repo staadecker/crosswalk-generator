@@ -475,6 +475,11 @@ The app must work with zero setup and never lose work silently.
 - **Columns**
   - `group_number` — sequential, starting at 1 in group order (not derived
     from the group's name or codes).
+  - `group_name` — that group's A-side leaf codes joined with ";", repeated
+    on every row of the group (both sides). This is distinct from the
+    group's internal `name` field (used only for a11y labels, never shown or
+    editable in the UI) — `group_name` is always auto-derived from the raw
+    A-side leaf codes, never from that field.
   - `system` — literally "A" or "B", regardless of what either system was
     named.
   - `system_name` — the owning system's own name (falling back to "A"/"B" if

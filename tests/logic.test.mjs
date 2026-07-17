@@ -21,7 +21,6 @@ import { buildCrosswalkRows, crosswalkToCsv } from '../src/lib/crosswalk.js';
 import {
   addGroup,
   markNoMatch,
-  renameGroup,
   toggleApprox,
   updateGroupNote,
   addCodesToGroup,
@@ -193,19 +192,17 @@ addGroup(naicsBeverageLeaves, [...expandToLeaves(sysB.tree, ['10.61'])], 'Bevera
   );
 }
 
-// --- rename + note ---
+// --- note ---
 {
   const g = get(mappings)[0];
-  renameGroup(g.id, 'Soybean farming (renamed)');
   updateGroupNote(g.id, 'reviewed');
   const updated = get(mappings).find((x) => x.id === g.id);
-  check(updated.name === 'Soybean farming (renamed)', 'renameGroup updates the group name');
   check(updated.note === 'reviewed', 'updateGroupNote updates the group note');
 }
 
 // --- drag a code from a tree panel onto an existing group ---
 {
-  const g = get(mappings)[0]; // Soybean farming (renamed): A 11111, B 01.11/01.13
+  const g = get(mappings)[0]; // Soybean Farming: A 11111, B 01.11/01.13
   const before = g.bLeafCodes.length;
   addCodesToGroup(g.id, 'B', [...expandToLeaves(sysB.tree, ['01.41'])]);
   const after = get(mappings).find((x) => x.id === g.id);
@@ -225,7 +222,7 @@ addGroup(naicsBeverageLeaves, [...expandToLeaves(sysB.tree, ['10.61'])], 'Bevera
 // --- drag a bubble from one mapping-pane group onto another group (a move, not a copy) ---
 {
   addGroup(['31121'], ['01.42'], 'Move target');
-  const source = get(mappings).find((x) => x.name === 'Soybean farming (renamed)'); // B: 01.11, 01.13
+  const source = get(mappings).find((x) => x.name === 'Soybean Farming'); // B: 01.11, 01.13
   const target = get(mappings).find((x) => x.name === 'Move target');
   const before = source.bLeafCodes.length;
   const { skipped } = moveCodesToGroup(source.id, target.id, 'B', ['01.13']);
@@ -342,6 +339,12 @@ check(soyB.system_name === 'NACE', 'the system_name column carries the B system\
 check(soyA.title === 'Soybean Farming', 'crosswalk joins the A code\'s title');
 check(soyB.title.includes('cereals'), 'crosswalk joins the B code\'s title');
 check(soyA.group_number === soyB.group_number, 'both sides of one group share the same group_number');
+const soyGroupForName = get(mappings).find((g) => g.aLeafCodes.includes('11111') && g.bLeafCodes.includes('01.11'));
+check(
+  soyA.group_name === soyGroupForName.aLeafCodes.join(';'),
+  'group_name is the group\'s A-side leaf codes joined with ";"',
+);
+check(soyA.group_name === soyB.group_name, 'both sides of one group share the same group_name');
 check(soyA.relationship === 'equal', 'a group defaults to "equal" (not approximate)');
 check(soyA.note === 'reviewed', 'every row of a group carries that group\'s note');
 const noMatchRow = rows.find((r) => r.code === '62.01');
@@ -356,8 +359,8 @@ check(
 );
 const header = crosswalkToCsv(rows).split(/\r?\n/)[0];
 check(
-  header === 'group_number,system,system_name,code,title,description,relationship,note',
-  'exported CSV has the expected 8-column header',
+  header === 'group_number,group_name,system,system_name,code,title,description,relationship,note',
+  'exported CSV has the expected 9-column header',
 );
 
 // --- the literal example from the spec: linking NACE code 12 to NAICS code 16
@@ -383,6 +386,10 @@ check(
   check(
     exampleRows.some((r) => r.group_number === 1 && r.system === 'A' && r.system_name === 'NAICS' && r.code === '16'),
     'exports a "1,A,NAICS,16" row',
+  );
+  check(
+    exampleRows.every((r) => r.group_name === '16'),
+    'group_name is the A-side leaf codes joined with ";" (just "16" here), regardless of side',
   );
 }
 

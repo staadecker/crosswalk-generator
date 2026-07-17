@@ -95,8 +95,10 @@ https://svelte.dev/llms-small.txt for a condensed reference if unsure.
   system (with progress bar, sample-data shortcuts, grey-out of mapped
   entries, an editable dataset name used in export filenames), the mapping
   bar (build a group from the current selections), and the mapping list
-  (named groups, drag-and-drop, removable bubbles, name/note kept as compact
-  static text behind an edit toggle rather than always-editable fields).
+  (named groups — the name itself is internal, used only for a11y labels,
+  never shown or editable in the UI — drag-and-drop, removable bubbles, and
+  a note kept as compact static text behind an edit toggle rather than an
+  always-editable field).
 - `tests/logic.test.mjs` — plain-Node tests for the pure logic in `src/lib/*`
   (no browser/DOM). Run with `npm run test:logic`.
 - `tests/vite-build.test.mjs` — plain-Node check that `vite build` exits
@@ -169,8 +171,8 @@ npm test              # logic tests + Playwright e2e
   '@material-design-icons/svg/filled/edit.svg?raw';`) and render it with
   `{@html editIcon}` inside the button; size/color it via
   `.icon-btn :global(svg) { width: …; height: …; fill: currentColor; }`. See
-  the rename/note buttons in `MappingList.svelte` and `TreePanel.svelte` for
-  the pattern. Plain-text glyphs (e.g. "✕" for remove/close) are unaffected —
+  the note button in `MappingList.svelte` and the rename button in
+  `TreePanel.svelte` for the pattern. Plain-text glyphs (e.g. "✕" for remove/close) are unaffected —
   this convention is specifically for edit/action icons that read poorly as a
   single character.
 - Hoverable code chips/hints use a custom fast-appearing tooltip (`fastTooltip`

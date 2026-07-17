@@ -351,10 +351,6 @@ export function markNoMatch(side, leafCodes, note = '', tree = null) {
   return { added, skipped };
 }
 
-export function renameGroup(id, name) {
-  mappings.update(($m) => $m.map((g) => (g.id === id ? { ...g, name } : g)));
-}
-
 /** Toggle a group between "equal" (the default) and "approximately equal". */
 export function toggleApprox(id) {
   mappings.update(($m) => $m.map((g) => (g.id === id ? { ...g, approx: !g.approx } : g)));

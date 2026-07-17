@@ -7,7 +7,10 @@ import { isNoMatch } from './stores.js';
  * B-codes produces 5 rows, all sharing the same sequential group_number, not
  * a 6-row cross-product. A no-match group still gets a group number and
  * contributes rows for whichever side actually has codes, with a blank
- * relationship (there's no correspondence to qualify).
+ * relationship (there's no correspondence to qualify). Each row also carries
+ * a `group_name` column: the group's A-side leaf codes joined with ';'
+ * (distinct from the group's internal `name` field, which is only used for
+ * a11y labels and is never shown or editable in the UI).
  *
  * @param {object[]} groups  mapping groups: { id, name, aLeafCodes, bLeafCodes, note, approx }
  * @param {object|null} systemA  system A (has tree.byCode and a name)
@@ -22,11 +25,13 @@ export function buildCrosswalkRows(groups, systemA, systemB) {
   const rows = [];
   groups.forEach((g, i) => {
     const groupNumber = i + 1;
+    const groupName = g.aLeafCodes.join(';');
     const relationship = isNoMatch(g) ? '' : g.approx ? 'approximate' : 'equal';
     for (const code of g.aLeafCodes) {
       const node = aByCode.get(code);
       rows.push({
         group_number: groupNumber,
+        group_name: groupName,
         system: 'A',
         system_name: aName,
         code,
@@ -40,6 +45,7 @@ export function buildCrosswalkRows(groups, systemA, systemB) {
       const node = bByCode.get(code);
       rows.push({
         group_number: groupNumber,
+        group_name: groupName,
         system: 'B',
         system_name: bName,
         code,
@@ -56,7 +62,17 @@ export function buildCrosswalkRows(groups, systemA, systemB) {
 /** Serialize buildCrosswalkRows() output to a CSV string. */
 export function crosswalkToCsv(rows) {
   return Papa.unparse(rows, {
-    columns: ['group_number', 'system', 'system_name', 'code', 'title', 'description', 'relationship', 'note'],
+    columns: [
+      'group_number',
+      'group_name',
+      'system',
+      'system_name',
+      'code',
+      'title',
+      'description',
+      'relationship',
+      'note',
+    ],
   });
 }
 

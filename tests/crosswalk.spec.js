@@ -199,7 +199,9 @@ test('build hierarchies, map codes as groups, persist, and export a crosswalk', 
   const download = await exportViaCiteModal(page);
   expect(download.suggestedFilename()).toMatch(/\.csv$/);
   const csv = readFileSync(await download.path(), 'utf8');
-  expect(csv.split(/\r?\n/)[0]).toBe('group_number,system,system_name,code,title,description,relationship,note');
+  expect(csv.split(/\r?\n/)[0]).toBe(
+    'group_number,group_name,system,system_name,code,title,description,relationship,note',
+  );
   const parsedCsv = Papa.parse(csv, { header: true }).data;
 
   // The soybean group's A leaf (11111) and B leaf (01.11) are separate rows
@@ -211,6 +213,8 @@ test('build hierarchies, map codes as groups, persist, and export a crosswalk', 
   expect(soyB.system_name).toBe(systemNameB);
   expect(soyA.title).toBe('Soybean Farming');
   expect(soyA.group_number).toBe(soyB.group_number);
+  expect(soyA.group_name).toBe('11111;31111'); // A-side leaf codes joined with ";" (11111 plus the dragged-in 31111)
+  expect(soyA.group_name).toBe(soyB.group_name);
   expect(soyA.relationship).toBe('equal'); // "equal" by default, not toggled to approximate
 
   // No-match row: only a row under its own system, blank relationship, and
