@@ -32,7 +32,7 @@ export const toolbar = {
   undoTitle: 'Undo last mapping change',
   redoTitle: 'Redo last undone mapping change',
   exportButton: 'Export crosswalk (.csv)',
-  exportTitle: 'Download a single CSV: one row per code, grouped by a sequential group_number',
+  exportTitle: 'Download a single CSV: one row per mapping group',
   saveProjectButton: 'Save project',
   saveProjectTitle: 'Save systems and groupings as a reloadable JSON file',
   loadProjectButton: 'Load project',

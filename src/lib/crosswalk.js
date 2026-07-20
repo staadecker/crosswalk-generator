@@ -1,78 +1,42 @@
 import Papa from 'papaparse';
 import { isNoMatch } from './stores.js';
 
+/** Semicolon-join a field of each leaf code's node, in leaf-code order. */
+function joinField(leafCodes, byCode, field) {
+  return leafCodes.map((code) => byCode.get(code)?.[field] ?? '').join(';');
+}
+
 /**
- * One row per code across every group (both its A-side and B-side leaf
- * codes), rather than one row per pairing — a group linking 2 A-codes to 3
- * B-codes produces 5 rows, all sharing the same sequential group_number, not
- * a 6-row cross-product. A no-match group still gets a group number and
- * contributes rows for whichever side actually has codes, with a blank
- * relationship (there's no correspondence to qualify). Each row also carries
- * a `group_name` column: the group's A-side leaf codes joined with ';'
- * (distinct from the group's internal `name` field, which is only used for
- * a11y labels and is never shown or editable in the UI).
+ * One row per mapping group — no cross-product, no per-code row explosion.
+ * `system_a`/`system_b` are that group's leaf codes joined with ';'; the
+ * `_titles` columns are the corresponding codes' titles, joined with ';' in
+ * the same order (so the Nth code in `system_a` lines up with the Nth entry
+ * in `system_a_titles`). A no-match group still gets a row, with the empty
+ * side's columns blank and a blank `relationship` (there's no correspondence
+ * to qualify).
  *
  * @param {object[]} groups  mapping groups: { id, name, aLeafCodes, bLeafCodes, note, approx }
- * @param {object|null} systemA  system A (has tree.byCode and a name)
+ * @param {object|null} systemA  system A (has tree.byCode)
  * @param {object|null} systemB  system B
  * @returns {Array<object>}
  */
 export function buildCrosswalkRows(groups, systemA, systemB) {
   const aByCode = systemA?.tree.byCode ?? new Map();
   const bByCode = systemB?.tree.byCode ?? new Map();
-  const aName = systemA?.name || 'A';
-  const bName = systemB?.name || 'B';
-  const rows = [];
-  groups.forEach((g, i) => {
-    const groupNumber = i + 1;
-    const groupName = g.aLeafCodes.join(';');
-    const relationship = isNoMatch(g) ? '' : g.approx ? 'approximate' : 'equal';
-    for (const code of g.aLeafCodes) {
-      const node = aByCode.get(code);
-      rows.push({
-        group_number: groupNumber,
-        group_name: groupName,
-        system: 'A',
-        system_name: aName,
-        code,
-        title: node?.title ?? '',
-        description: node?.description ?? '',
-        relationship,
-        note: g.note ?? '',
-      });
-    }
-    for (const code of g.bLeafCodes) {
-      const node = bByCode.get(code);
-      rows.push({
-        group_number: groupNumber,
-        group_name: groupName,
-        system: 'B',
-        system_name: bName,
-        code,
-        title: node?.title ?? '',
-        description: node?.description ?? '',
-        relationship,
-        note: g.note ?? '',
-      });
-    }
-  });
-  return rows;
+  return groups.map((g) => ({
+    system_a: g.aLeafCodes.join(';'),
+    system_a_titles: joinField(g.aLeafCodes, aByCode, 'title'),
+    system_b: g.bLeafCodes.join(';'),
+    system_b_titles: joinField(g.bLeafCodes, bByCode, 'title'),
+    relationship: isNoMatch(g) ? '' : g.approx ? 'approximate' : 'equal',
+    note: g.note ?? '',
+  }));
 }
 
 /** Serialize buildCrosswalkRows() output to a CSV string. */
 export function crosswalkToCsv(rows) {
   return Papa.unparse(rows, {
-    columns: [
-      'group_number',
-      'group_name',
-      'system',
-      'system_name',
-      'code',
-      'title',
-      'description',
-      'relationship',
-      'note',
-    ],
+    columns: ['system_a', 'system_a_titles', 'system_b', 'system_b_titles', 'relationship', 'note'],
   });
 }
 

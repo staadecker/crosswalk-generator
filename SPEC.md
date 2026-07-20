@@ -467,30 +467,22 @@ The app must work with zero setup and never lose work silently.
   - Only confirming the popup triggers the download.
   - Canceling (its Cancel button, Escape, or its backdrop) closes it without
     downloading.
-- **Row shape** — one row *per code*, not per A×B pairing.
-  - Every group contributes one row for each A-side leaf and one row for each
-    B-side leaf, all sharing that group's number.
-  - A group linking 2 A-codes to 3 B-codes produces 5 rows, not a 6-row
-    cross-product.
+- **Row shape** — one row *per mapping group*, not per code and not per A×B
+  pairing. A group linking 2 A-codes to 3 B-codes still produces exactly 1
+  row, not 5 rows or a 6-row cross-product.
 - **Columns**
-  - `group_number` — sequential, starting at 1 in group order (not derived
-    from the group's name or codes).
-  - `group_name` — that group's A-side leaf codes joined with ";", repeated
-    on every row of the group (both sides). This is distinct from the
-    group's internal `name` field (used only for a11y labels, never shown or
-    editable in the UI) — `group_name` is always auto-derived from the raw
-    A-side leaf codes, never from that field.
-  - `system` — literally "A" or "B", regardless of what either system was
-    named.
-  - `system_name` — the owning system's own name (falling back to "A"/"B" if
-    never set).
-  - `code`, `title`, `description` — the code's own fields from its system's
-    hierarchy (`description` blank if the system has no description column).
-  - `relationship` — "equal" or "approximate", repeated on every row of the
-    group; blank for a no-match entry (nothing to qualify).
-  - `note` — the group's free-text note, repeated on every row of the group.
-- A no-match entry still gets its own group number and contributes rows only
-  for whichever side has codes.
+  - `system_a` — that group's A-side leaf codes, joined with ";" (empty
+    string if the group has no A-side codes, i.e. a B-only no-match entry).
+  - `system_a_titles` — the corresponding A-side codes' `title` fields,
+    joined with ";" in the same order as `system_a`, so the Nth code lines
+    up with the Nth title.
+  - `system_b`, `system_b_titles` — the B-side equivalents of the two
+    columns above.
+  - `relationship` — "equal" or "approximate"; blank for a no-match entry
+    (nothing to qualify).
+  - `note` — the group's free-text note.
+- A no-match entry still gets its own row, with the empty side's `system_*`
+  columns blank.
 - **Filename** — reflects both systems' names (falling back to generic labels
   if never set) and the export date, so exports over time or across dataset
   pairs don't collide or need manual renaming.

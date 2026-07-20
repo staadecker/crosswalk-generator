@@ -329,42 +329,27 @@ systemBStore.set(sysB);
   check(counts.noMatchB.has('62.01'), 'a no-match leaf code is tracked separately for badge rendering');
 }
 
-// --- export: single CSV, one row per code (both sides of every group),
-// sharing a sequential group_number rather than an N×N cross-product ---
+// --- export: single CSV, one row per group (not per code, not an N×N
+// cross-product) with codes/titles semicolon-joined per side ---
 const rows = buildCrosswalkRows(get(mappings), sysA, sysB);
-const soyA = rows.find((r) => r.system === 'A' && r.code === '11111');
-const soyB = rows.find((r) => r.system === 'B' && r.code === '01.11');
-check(soyA.system_name === 'NAICS', 'the system_name column carries the A system\'s own name');
-check(soyB.system_name === 'NACE', 'the system_name column carries the B system\'s own name');
-check(soyA.title === 'Soybean Farming', 'crosswalk joins the A code\'s title');
-check(soyB.title.includes('cereals'), 'crosswalk joins the B code\'s title');
-check(soyA.group_number === soyB.group_number, 'both sides of one group share the same group_number');
-const soyGroupForName = get(mappings).find((g) => g.aLeafCodes.includes('11111') && g.bLeafCodes.includes('01.11'));
-check(
-  soyA.group_name === soyGroupForName.aLeafCodes.join(';'),
-  'group_name is the group\'s A-side leaf codes joined with ";"',
-);
-check(soyA.group_name === soyB.group_name, 'both sides of one group share the same group_name');
-check(soyA.relationship === 'equal', 'a group defaults to "equal" (not approximate)');
-check(soyA.note === 'reviewed', 'every row of a group carries that group\'s note');
-const noMatchRow = rows.find((r) => r.code === '62.01');
-check(noMatchRow && noMatchRow.system === 'B', 'a B-only no-match entry exports a row under system B');
-check(!rows.some((r) => r.code === '62.01' && r.system === 'A'), 'a B-only no-match entry has no A-side row');
+const soyRow = rows.find((r) => r.system_a.includes('11111'));
+check(soyRow.system_b === '01.11', 'crosswalk joins the B-side leaf code(s) for the group');
+check(soyRow.system_a_titles === 'Soybean Farming', 'crosswalk joins the A code\'s title');
+check(soyRow.system_b_titles.includes('cereals'), 'crosswalk joins the B code\'s title');
+check(soyRow.relationship === 'equal', 'a group defaults to "equal" (not approximate)');
+check(soyRow.note === 'reviewed', 'the row carries the group\'s note');
+const noMatchRow = rows.find((r) => r.system_b === '62.01');
+check(noMatchRow && noMatchRow.system_a === '', 'a B-only no-match entry has a blank system_a column');
 check(noMatchRow.relationship === '', 'a no-match row has no relationship (nothing to qualify)');
-const groupNumbersSeen = [...new Set(rows.map((r) => r.group_number))];
-check(groupNumbersSeen[0] === 1, 'group numbering starts at 1');
-check(
-  groupNumbersSeen.every((n, i) => n === i + 1),
-  'group_number is sequential in group order',
-);
+check(rows.length === get(mappings).length, 'export produces exactly one row per group');
 const header = crosswalkToCsv(rows).split(/\r?\n/)[0];
 check(
-  header === 'group_number,group_name,system,system_name,code,title,description,relationship,note',
-  'exported CSV has the expected 9-column header',
+  header === 'system_a,system_a_titles,system_b,system_b_titles,relationship,note',
+  'exported CSV has the expected 6-column header',
 );
 
 // --- the literal example from the spec: linking NACE code 12 to NAICS code 16
-// in one group exports exactly the two rows "1,B,NACE,12" and "1,A,NAICS,16" ---
+// in one group exports exactly one row, "16,...,12,..." ---
 {
   const tinyA = makeSystem('NAICS', [{ level: '1', code: '16', description: 'Sixteen' }], {
     level: 'level',
@@ -378,18 +363,22 @@ check(
   });
   const group = { id: 'g-example', name: 'example', aLeafCodes: ['16'], bLeafCodes: ['12'], note: '', approx: false };
   const exampleRows = buildCrosswalkRows([group], tinyA, tinyB);
-  check(exampleRows.length === 2, 'one group with one code per side exports exactly 2 rows, not 4');
+  check(exampleRows.length === 1, 'one group with one code per side exports exactly 1 row, not 2');
   check(
-    exampleRows.some((r) => r.group_number === 1 && r.system === 'B' && r.system_name === 'NACE' && r.code === '12'),
-    'exports a "1,B,NACE,12" row',
+    exampleRows[0].system_a === '16' && exampleRows[0].system_b === '12',
+    'exports system_a "16" and system_b "12" on the same row',
   );
+}
+
+// --- multi-code group: codes and titles line up index-wise across the
+// semicolon-joined columns ---
+{
+  const multi = { id: 'g-multi', name: 'multi', aLeafCodes: ['11111', '54151'], bLeafCodes: ['01.11'], note: '', approx: false };
+  const multiRows = buildCrosswalkRows([multi], sysA, sysB);
+  check(multiRows[0].system_a === '11111;54151', 'system_a joins multiple A-side codes with ";"');
   check(
-    exampleRows.some((r) => r.group_number === 1 && r.system === 'A' && r.system_name === 'NAICS' && r.code === '16'),
-    'exports a "1,A,NAICS,16" row',
-  );
-  check(
-    exampleRows.every((r) => r.group_name === '16'),
-    'group_name is the A-side leaf codes joined with ";" (just "16" here), regardless of side',
+    multiRows[0].system_a_titles.split(';').length === 2,
+    'system_a_titles has one ";"-joined entry per A-side code, in the same order',
   );
 }
 
@@ -400,7 +389,7 @@ check(
   toggleApprox(soyGroup.id);
   check(get(mappings).find((g) => g.id === soyGroup.id).approx === true, 'toggleApprox flips a group to approximate');
   const approxRows = buildCrosswalkRows(get(mappings), sysA, sysB);
-  const approxSoy = approxRows.find((r) => r.system === 'A' && r.code === '11111');
+  const approxSoy = approxRows.find((r) => r.system_a.includes('11111'));
   check(approxSoy.relationship === 'approximate', 'the export reflects the toggled relationship');
   toggleApprox(soyGroup.id); // flip back so later checks in this file see the original state
   check(get(mappings).find((g) => g.id === soyGroup.id).approx === false, 'toggleApprox flips back to equal');

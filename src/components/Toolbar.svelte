@@ -48,9 +48,8 @@
     return `${sa || 'a'}-to-${sb || 'b'}`;
   }
 
-  // One export button, one download: a single CSV with one row per code (both
-  // sides of every group), sharing a sequential group_number — no format
-  // dropdown to choose between, and no zip to unpack.
+  // One export button, one download: a single CSV with one row per mapping
+  // group — no format dropdown to choose between, and no zip to unpack.
   function exportCsv() {
     const groups = get(mappings);
     const a = get(systemA);

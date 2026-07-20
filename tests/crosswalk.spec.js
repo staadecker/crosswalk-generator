@@ -193,36 +193,26 @@ test('build hierarchies, map codes as groups, persist, and export a crosswalk', 
   await expect(page.locator('.list header h3 .count')).toHaveText('2');
   await expect(page.locator('.row').first().locator('.pair > .side').first().locator('.bubble')).toHaveCount(2);
 
-  // --- Export: a single CSV, one row per code across every mapping group. ---
-  const systemNameA = (await page.locator('.panel[data-accent="A"] .name-label').textContent())?.trim();
-  const systemNameB = (await page.locator('.panel[data-accent="B"] .name-label').textContent())?.trim();
+  // --- Export: a single CSV, one row per mapping group. ---
   const download = await exportViaCiteModal(page);
   expect(download.suggestedFilename()).toMatch(/\.csv$/);
   const csv = readFileSync(await download.path(), 'utf8');
   expect(csv.split(/\r?\n/)[0]).toBe(
-    'group_number,group_name,system,system_name,code,title,description,relationship,note',
+    'system_a,system_a_titles,system_b,system_b_titles,relationship,note',
   );
   const parsedCsv = Papa.parse(csv, { header: true }).data;
 
-  // The soybean group's A leaf (11111) and B leaf (01.11) are separate rows
-  // sharing one group_number, not a single combined row. `system` is the
-  // literal A/B side; `system_name` is that side's own dataset name.
-  const soyA = parsedCsv.find((r) => r.system === 'A' && r.code === '11111');
-  const soyB = parsedCsv.find((r) => r.system === 'B' && r.code === '01.11');
-  expect(soyA.system_name).toBe(systemNameA);
-  expect(soyB.system_name).toBe(systemNameB);
-  expect(soyA.title).toBe('Soybean Farming');
-  expect(soyA.group_number).toBe(soyB.group_number);
-  expect(soyA.group_name).toBe('11111;31111'); // A-side leaf codes joined with ";" (11111 plus the dragged-in 31111)
-  expect(soyA.group_name).toBe(soyB.group_name);
-  expect(soyA.relationship).toBe('equal'); // "equal" by default, not toggled to approximate
+  // The soybean group's A codes (11111 plus the dragged-in 31111) and B leaf
+  // (01.11) collapse into one row, not separate rows sharing a group number.
+  const soyRow = parsedCsv.find((r) => r.system_a.includes('11111'));
+  expect(soyRow.system_a).toBe('11111;31111');
+  expect(soyRow.system_b).toBe('01.11');
+  expect(soyRow.system_a_titles.split(';')[0]).toBe('Soybean Farming');
+  expect(soyRow.relationship).toBe('equal'); // "equal" by default, not toggled to approximate
 
-  // No-match row: only a row under its own system, blank relationship, and
-  // (per the "distinct row per no-match code" rule) its own code as the note-free
-  // relationship marker rather than any pairing.
-  const noMatchExportRow = parsedCsv.find((r) => r.code === '54151');
-  expect(noMatchExportRow.system).toBe('A');
-  expect(parsedCsv.some((r) => r.code === '54151' && r.system === 'B')).toBe(false);
+  // No-match row: system_b blank (nothing to pair with), blank relationship.
+  const noMatchExportRow = parsedCsv.find((r) => r.system_a === '54151');
+  expect(noMatchExportRow.system_b).toBe('');
   expect(noMatchExportRow.relationship).toBe('');
 
   expect(errors, `browser errors:\n${errors.join('\n')}`).toEqual([]);
@@ -1331,7 +1321,7 @@ test('the mapping relationship toggle switches between equal and approximately-e
   const download = await exportViaCiteModal(page);
   const csv = readFileSync(await download.path(), 'utf8');
   const parsed = Papa.parse(csv, { header: true }).data;
-  const exportedRow = parsed.find((r) => r.code === '11111'); // the only group in this test
+  const exportedRow = parsed.find((r) => r.system_a === '11111'); // the only group in this test
   expect(exportedRow.relationship).toBe('approximate');
 
   // Toggling back flips it to "equal" again.
